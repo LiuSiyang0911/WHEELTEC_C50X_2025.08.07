@@ -1,0 +1,28 @@
+#ifndef __FILTER_H
+#define __FILTER_H
+#include "system.h"
+  /**************************************************************************
+作者：平衡小车之家
+我的淘宝小店：http://shop114407458.taobao.com/
+**************************************************************************/
+extern float angle, angle_dot; 	
+void Kalman_Filter(float Accel,float Gyro);		
+void Yijielvbo(float angle_m, float gyro_m);
+// 1D卡尔曼滤波结构体定义
+typedef struct {
+    float lastP; // 上次估算协方差
+    float nowP;  // 当前估算协方差
+    float out;   // 卡尔曼输出
+    float kg;    // 卡尔曼增益
+    float Q;     // 过程噪声协方差
+    float R;     // 测量噪声协方差
+} Kalman_TypeDef;
+
+/**
+ * @brief 一阶卡尔曼滤波函数
+ * @param k 卡尔曼结构体指针
+ * @param input 待滤波的原始数据
+ * @return 滤波后的数据
+ */
+float Kalman_Filter_1D(Kalman_TypeDef *k, float input);
+#endif
