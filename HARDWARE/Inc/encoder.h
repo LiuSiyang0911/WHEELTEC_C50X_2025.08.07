@@ -3,10 +3,10 @@
 #include "sys.h"
 
 // No larger than 65535, because the timer of STM32F103 is 16 bit
-//²»¿É´óÓÚ65535£¬ÒòÎªSTM32F103µÄ¶¨Ê±Æ÷ÊÇ16Î»µÄ
+//ï¿½ï¿½ï¿½É´ï¿½ï¿½ï¿½65535ï¿½ï¿½ï¿½ï¿½ÎªSTM32F103ï¿½Ä¶ï¿½Ê±ï¿½ï¿½ï¿½ï¿½16Î»ï¿½ï¿½
 #define ENCODER_TIM_PERIOD (u16)(65535)   
 
-//±àÂëÆ÷Ã¶¾Ù
+//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ã¶ï¿½ï¿½
 typedef enum{
 	Encoder_A,
 	Encoder_B,
@@ -18,19 +18,34 @@ typedef enum{
 short Read_Encoder(ENCODER_t e);
 /*----------------------------------*/
 
+/*--------Tæ³•ï¼ˆå‘¨æœŸæµ‹é€Ÿï¼‰â€” ä»… AKM_CAR T-method, AKM_CAR only --------*/
+#if defined AKM_CAR
+/* ç”± ISR æ›´æ–°çš„åŽŸå§‹é€Ÿåº¦ [0]=EncA [1]=EncB, å•ä½ m/s (æœªé™¤WheelDiff) */
+extern volatile float    encoder_T_velocity_raw[2];
+/* ä¸Šæ¬¡è„‰å†²æ—¶åˆ», ç”¨äºŽé›¶é€Ÿè¶…æ—¶åˆ¤æ–­ */
+extern volatile uint32_t last_pulse_update[2];
+/* ç”± system.c åœ¨ Robot_Select() åŽèµ‹å€¼: Wheel_Circ / (Encoder_precision/4) */
+extern float             enc_T_scale_base;
+
+void     TIM6_FreeRun_Init(void);
+void     Encoder_T_Method_Init(void);
+uint32_t get_us_tick(void);
+#endif /* AKM_CAR */
+/*----------------------------------*/
+
 
 /*--------ENCODER_A config--------*/
 #define ENABLE_ENCODER_A_TIM_CLOCK    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2,ENABLE)
 #define ENBALE_ENCODER_A1_PORT_CLOCK  RCC_APB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE)
 #define ENBALE_ENCODER_A2_PORT_CLOCK  RCC_APB1PeriphClockCmd(RCC_AHB1Periph_GPIOB,ENABLE)
 
-#define ENCODER_A_TIM     TIM2             //±àÂëÆ÷A½Ó¿ÚËùÊ¹ÓÃµÄ¶¨Ê±Æ÷
+#define ENCODER_A_TIM     TIM2             //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Aï¿½Ó¿ï¿½ï¿½ï¿½Ê¹ï¿½ÃµÄ¶ï¿½Ê±ï¿½ï¿½
 
-#define ENCODER_A1_PORT   GPIOA            //±àÂëÆ÷A½Ó¿Ú1ºÅ¶Ë¿Ú
-#define ENCODER_A1_PIN    GPIO_Pin_15      //±àÂëÆ÷A½Ó¿Ú1ºÅÒý½Å
+#define ENCODER_A1_PORT   GPIOA            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Aï¿½Ó¿ï¿½1ï¿½Å¶Ë¿ï¿½
+#define ENCODER_A1_PIN    GPIO_Pin_15      //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Aï¿½Ó¿ï¿½1ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
-#define ENCODER_A2_PORT   GPIOB            //±àÂëÆ÷A½Ó¿Ú2ºÅ¶Ë¿Ú
-#define ENCODER_A2_PIN    GPIO_Pin_3       //±àÂëÆ÷A½Ó¿Ú2ºÅÒý½Å
+#define ENCODER_A2_PORT   GPIOB            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Aï¿½Ó¿ï¿½2ï¿½Å¶Ë¿ï¿½
+#define ENCODER_A2_PIN    GPIO_Pin_3       //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Aï¿½Ó¿ï¿½2ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 /*----------------------------------*/
 
 /*--------ENCODER_A Interface Fun --------*/
@@ -43,13 +58,13 @@ void EncoderA_Init(void);
 #define ENBALE_ENCODER_B1_PORT_CLOCK  RCC_APB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE)
 #define ENBALE_ENCODER_B2_PORT_CLOCK  RCC_APB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE)
 
-#define ENCODER_B_TIM     TIM3             //±àÂëÆ÷B½Ó¿ÚËùÊ¹ÓÃµÄ¶¨Ê±Æ÷
+#define ENCODER_B_TIM     TIM3             //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Bï¿½Ó¿ï¿½ï¿½ï¿½Ê¹ï¿½ÃµÄ¶ï¿½Ê±ï¿½ï¿½
 
-#define ENCODER_B1_PORT   GPIOA            //±àÂëÆ÷B½Ó¿Ú1ºÅ¶Ë¿Ú
-#define ENCODER_B1_PIN    GPIO_Pin_6       //±àÂëÆ÷B½Ó¿Ú1ºÅÒý½Å
+#define ENCODER_B1_PORT   GPIOA            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Bï¿½Ó¿ï¿½1ï¿½Å¶Ë¿ï¿½
+#define ENCODER_B1_PIN    GPIO_Pin_6       //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Bï¿½Ó¿ï¿½1ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
-#define ENCODER_B2_PORT   GPIOA            //±àÂëÆ÷B½Ó¿Ú2ºÅ¶Ë¿Ú
-#define ENCODER_B2_PIN    GPIO_Pin_7       //±àÂëÆ÷B½Ó¿Ú2ºÅÒý½Å
+#define ENCODER_B2_PORT   GPIOA            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Bï¿½Ó¿ï¿½2ï¿½Å¶Ë¿ï¿½
+#define ENCODER_B2_PIN    GPIO_Pin_7       //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Bï¿½Ó¿ï¿½2ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 /*----------------------------------*/
 
 /*--------ENCODER_B Interface Fun --------*/
@@ -61,13 +76,13 @@ void EncoderB_Init(void);
 #define ENBALE_ENCODER_C1_PORT_CLOCK  RCC_APB1PeriphClockCmd(RCC_AHB1Periph_GPIOB,ENABLE)
 #define ENBALE_ENCODER_C2_PORT_CLOCK  RCC_APB1PeriphClockCmd(RCC_AHB1Periph_GPIOB,ENABLE)
 
-#define ENCODER_C_TIM     TIM4             //±àÂëÆ÷C½Ó¿ÚËùÊ¹ÓÃµÄ¶¨Ê±Æ÷
+#define ENCODER_C_TIM     TIM4             //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½Ó¿ï¿½ï¿½ï¿½Ê¹ï¿½ÃµÄ¶ï¿½Ê±ï¿½ï¿½
 
-#define ENCODER_C1_PORT   GPIOB            //±àÂëÆ÷C½Ó¿Ú1ºÅ¶Ë¿Ú
-#define ENCODER_C1_PIN    GPIO_Pin_6       //±àÂëÆ÷C½Ó¿Ú1ºÅÒý½Å
+#define ENCODER_C1_PORT   GPIOB            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½Ó¿ï¿½1ï¿½Å¶Ë¿ï¿½
+#define ENCODER_C1_PIN    GPIO_Pin_6       //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½Ó¿ï¿½1ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
-#define ENCODER_C2_PORT   GPIOB            //±àÂëÆ÷C½Ó¿Ú2ºÅ¶Ë¿Ú
-#define ENCODER_C2_PIN    GPIO_Pin_7       //±àÂëÆ÷C½Ó¿Ú2ºÅÒý½Å
+#define ENCODER_C2_PORT   GPIOB            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½Ó¿ï¿½2ï¿½Å¶Ë¿ï¿½
+#define ENCODER_C2_PIN    GPIO_Pin_7       //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½Ó¿ï¿½2ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 /*----------------------------------*/
 
 /*--------ENCODER_C Interface Fun --------*/
@@ -79,13 +94,13 @@ void EncoderC_Init(void);
 #define ENBALE_ENCODER_D1_PORT_CLOCK  RCC_APB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE)
 #define ENBALE_ENCODER_D2_PORT_CLOCK  RCC_APB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE)
 
-#define ENCODER_D_TIM     TIM5             //±àÂëÆ÷D½Ó¿ÚËùÊ¹ÓÃµÄ¶¨Ê±Æ÷
+#define ENCODER_D_TIM     TIM5             //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Dï¿½Ó¿ï¿½ï¿½ï¿½Ê¹ï¿½ÃµÄ¶ï¿½Ê±ï¿½ï¿½
 
-#define ENCODER_D1_PORT   GPIOA            //±àÂëÆ÷D½Ó¿Ú1ºÅ¶Ë¿Ú
-#define ENCODER_D1_PIN    GPIO_Pin_0       //±àÂëÆ÷D½Ó¿Ú1ºÅÒý½Å
+#define ENCODER_D1_PORT   GPIOA            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Dï¿½Ó¿ï¿½1ï¿½Å¶Ë¿ï¿½
+#define ENCODER_D1_PIN    GPIO_Pin_0       //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Dï¿½Ó¿ï¿½1ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
-#define ENCODER_D2_PORT   GPIOA            //±àÂëÆ÷D½Ó¿Ú2ºÅ¶Ë¿Ú
-#define ENCODER_D2_PIN    GPIO_Pin_1       //±àÂëÆ÷D½Ó¿Ú2ºÅÒý½Å
+#define ENCODER_D2_PORT   GPIOA            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Dï¿½Ó¿ï¿½2ï¿½Å¶Ë¿ï¿½
+#define ENCODER_D2_PIN    GPIO_Pin_1       //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Dï¿½Ó¿ï¿½2ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 /*----------------------------------*/
 
 /*--------ENCODER_D Interface Fun --------*/

@@ -5,7 +5,7 @@
 #include "bsp_gamepad.h"
 
 //RTOS任务配置
-#define BALANCE_TASK_PRIO		4             //Task priority //任务优先级
+#define BALANCE_TASK_PRIO		5             //Task priority //任务优先级
 #define BALANCE_STK_SIZE 		512           //Task stack size //任务堆栈大小
 #define BALANCE_TASK_RATE       RATE_100_HZ   //任务频率
 

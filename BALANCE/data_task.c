@@ -27,7 +27,7 @@ void data_task(void *pvParameters)
 			//对要进行发送的数据进行赋值
 			data_transition(); 
 			
-			Usart1_SendTask();
+//			Usart1_SendTask();
 			Usart3_SendTask();
 			CAN1_SendTask();
 		}

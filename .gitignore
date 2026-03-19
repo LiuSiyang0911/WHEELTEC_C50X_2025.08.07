@@ -1,0 +1,65 @@
+# Keil µVision build output
+OBJ/
+*.o
+*.d
+*.crf
+*.axf
+*.hex
+*.htm
+*.map
+*.lnp
+*.dep
+*.build_log.htm
+
+# Keil user-specific files
+*.uvguix.*
+*.uvoptx
+
+# VS Code settings
+.vscode/
+
+# Debug log files
+*.log
+*.log.lock
+
+# IDE temporary files
+*.bak
+*.tmp
+
+# Object files
+*.obj
+*.elf
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+
+# Shared objects
+*.so
+*.dylib
+*.dll
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug files
+*.pdb
+*.ilk
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Claude AI settings
+.claude/
