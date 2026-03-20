@@ -977,33 +977,12 @@ static void ResponseControl(void)
 //增量式PI控制器
 //    //得到控制目标值，进行运动学分析
 //与小车控制相关
-	if(fabsf(robot.MOTOR_A.Target - robot.MOTOR_B.Target) < 0.001f && fabsf(robot.MOTOR_A.Target) > 0.01f) 
-	{
-			//自动回充模式下的控制命令.
-		float avg_encoder = (robot.MOTOR_A.Encoder + robot.MOTOR_B.Encoder) / 2.0f;
-		
-//    return currentPWM;
-		int sync_output = Incremental_MOTOR(&PI_MotorA, avg_encoder, robot.MOTOR_A.Target);
-		
-			//3、任意电机PWM输出超过更大阈值,则认为小车过载
-		robot.MOTOR_A.Output = sync_output;
-		robot.MOTOR_B.Output = sync_output;
-		
-		//舵机最终输出 = 中值 + 电位器纠正值 + 计算值
-		PI_MotorB.Bias = PI_MotorA.Bias;
-		PI_MotorB.LastBias = PI_MotorA.LastBias;
-		PI_MotorB.LastestBias = PI_MotorA.LastestBias; 
-		PI_MotorB.Output = sync_output;
-	}
-	else 
-	{
 	//根据滑轨的行程、不同的车型 来确定PI参数
-		if(fabsf(robot.MOTOR_A.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorA); robot.MOTOR_A.Output = 0;}
-		else robot.MOTOR_A.Output = Incremental_MOTOR( &PI_MotorA , robot.MOTOR_A.Encoder , robot.MOTOR_A.Target );
-		
-		if(fabsf(robot.MOTOR_B.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorB); robot.MOTOR_B.Output = 0;}
-		else robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
-	}
+	if(fabsf(robot.MOTOR_A.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorA); robot.MOTOR_A.Output = 0;}
+	else robot.MOTOR_A.Output = Incremental_MOTOR( &PI_MotorA , robot.MOTOR_A.Encoder , robot.MOTOR_A.Target );
+
+	if(fabsf(robot.MOTOR_B.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorB); robot.MOTOR_B.Output = 0;}
+	else robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
 	
 	//The servo of the top of the line Ackermann model only requires PI control. \
 	The high-end model does not come with steering rail feedback
