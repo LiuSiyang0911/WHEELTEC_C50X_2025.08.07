@@ -1,4 +1,4 @@
-#ifndef __KEY_H
+ï»¿#ifndef __KEY_H
 #define __KEY_H	 
 #include "sys.h"
 
@@ -12,7 +12,7 @@
 
 
 /*--------KEY Interface Fun --------*/
-enum { //°´¼ü×´Ì¬Ã¶¾Ù
+enum { //æŒ‰é”®çŠ¶æ€æšä¸¾
 	key_stateless,
 	single_click,
 	double_click,

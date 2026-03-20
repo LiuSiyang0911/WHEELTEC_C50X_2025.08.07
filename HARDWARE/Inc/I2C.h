@@ -1,4 +1,4 @@
-#ifndef _I2C_H_
+ï»¿#ifndef _I2C_H_
 #define _I2C_H_
 #include "sys.h"
 #include "delay.h"
@@ -10,7 +10,7 @@ enum
 };
 
 /*--------simulate iic config--------*/
-//Ä£ÄâIIC Òý½ÅÅäÖÃ
+//æ¨¡æ‹ŸIIC å¼•è„šé…ç½®
 #define ENABLE_IIC_SCL_PIN_CLOCK RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE)
 #define ENABLE_IIC_SDA_PIN_CLOCK RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE)
 
@@ -20,12 +20,12 @@ enum
 
 #define IIC_SDA_PORT      GPIOB
 #define IIC_SDA_PIN       GPIO_Pin_8
-#define IIC_SDA_PIN_NUM   8          //SDAµÄÒý½ÅºÅ
-#define IIC_SDA           PBout(8)   //Êä³öSDA	 
-#define READ_SDA          PBin(8)    //ÊäÈëSDA 
+#define IIC_SDA_PIN_NUM   8          //SDAçš„å¼•è„šå·
+#define IIC_SDA           PBout(8)   //è¾“å‡ºSDA	 
+#define READ_SDA          PBin(8)    //è¾“å…¥SDA 
 /*----------------------------------*/
 
-//¸ù¾ÝÓÃ»§ÅäÖÃ×Ô¶¯ÊÊÅä£¬ÎÞÐèÐÞ¸Ä
+//æ ¹æ®ç”¨æˆ·é…ç½®è‡ªåŠ¨é€‚é…ï¼Œæ— éœ€ä¿®æ”¹
 #define SDA_IN()  {IIC_SDA_PORT->MODER&=~(3<<(IIC_SDA_PIN_NUM*2));IIC_SDA_PORT->MODER|=0<<IIC_SDA_PIN_NUM*2;}	
 #define SDA_OUT() {IIC_SDA_PORT->MODER&=~(3<<(IIC_SDA_PIN_NUM*2));IIC_SDA_PORT->MODER|=1<<IIC_SDA_PIN_NUM*2;} 
 

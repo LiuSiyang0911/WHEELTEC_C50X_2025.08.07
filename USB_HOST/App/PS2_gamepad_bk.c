@@ -1,9 +1,9 @@
-#include "PS2_gamepad.h"
+ï»¿#include "PS2_gamepad.h"
 /*
- * PS2ÓÎÏ·ÊÖ±úĞ­Òé½âÎö
+ * PS2æ¸¸æˆæ‰‹æŸ„åè®®è§£æ
 */
 
-//PS2ÊÖ±ú°´¼ü»Øµ÷º¯Êı
+//PS2æ‰‹æŸ„æŒ‰é”®å›è°ƒå‡½æ•°
 void PS2GamePad_OnSingleClick(uint8_t key_id)
 {
 	
@@ -20,16 +20,16 @@ void PS2GamePad_OnLongClick(uint8_t key_id)
 }
 
 
-//PS2 16¸ö°´¼üÊıÖµ¶ÁÈ¡,ÄÚ²¿Ê¹ÓÃ
+//PS2 16ä¸ªæŒ‰é”®æ•°å€¼è¯»å–,å†…éƒ¨ä½¿ç”¨
 static uint16_t ps2_KeyVal = 0;
 
-//16¸öps2°´¼ü
+//16ä¸ªps2æŒ‰é”®
 #define PS2_KEY_NUM 16 
 
-//°´¼ü¼ì²â±äÁ¿Öµ,ÄÚ²¿Ê¹ÓÃ
+//æŒ‰é”®æ£€æµ‹å˜é‡å€¼,å†…éƒ¨ä½¿ç”¨
 static GamePad_CheckEventType_t PS2_GamePadKeyCheckEvent[PS2_KEY_NUM] = { 0 };
 
-//Ö±½Ó·´À¡°´¼üµÄ×´Ì¬Öµ
+//ç›´æ¥åé¦ˆæŒ‰é”®çš„çŠ¶æ€å€¼
 static GamePadKeyStateType_t PS2_GetKeyState(uint8_t bit)
 {
 	if( (ps2_KeyVal>>bit)&0x01 )
@@ -38,20 +38,20 @@ static GamePadKeyStateType_t PS2_GetKeyState(uint8_t bit)
 		return GamePadKeyState_Release;
 }
 
-//±êÖ¾Î»ÉèÖÃº¯Êı,ÓÃÓÚ¸¨Öúps2ÊÖ±ú½âÂë
+//æ ‡å¿—ä½è®¾ç½®å‡½æ•°,ç”¨äºè¾…åŠ©ps2æ‰‹æŸ„è§£ç 
 static void ps2_set_bit(uint16_t* state,uint8_t state_bit,uint8_t bit)
 {
-	if(state_bit==1) //Ö¸¶¨µÄÎ»(bit)ÉèÖÃÎª1,ÆäËûÎ»²»±ä
+	if(state_bit==1) //æŒ‡å®šçš„ä½(bit)è®¾ç½®ä¸º1,å…¶ä»–ä½ä¸å˜
 	{
 		*state |= (1U<<bit);
 	}
-	else //Ö¸¶¨µÄÎ»(bit)ÉèÖÃÎª0,ÆäËûÎ»²»±ä
+	else //æŒ‡å®šçš„ä½(bit)è®¾ç½®ä¸º0,å…¶ä»–ä½ä¸å˜
 	{
 		*state &= ~(1U<<bit);
 	}
 }
 
-//ÓÎÏ·ÊÖ±ú¶ÔÏó
+//æ¸¸æˆæ‰‹æŸ„å¯¹è±¡
 GamePadType_t ps2_gamepad = { 
 	.LX = 127,
 	.LY = 127,
@@ -65,7 +65,7 @@ GamePadType_t ps2_gamepad = {
 	.getKeyState = PS2_GetKeyState
 };
 
-//ÓĞÏßPS2ÊÖ±úµÄÊı¾İ½âÂë
+//æœ‰çº¿PS2æ‰‹æŸ„çš„æ•°æ®è§£ç 
 void PS2_Wired_Decode(const uint8_t *data,uint8_t datalen)
 {
 	uint8_t tmp_bool = 0 ;
@@ -76,64 +76,64 @@ void PS2_Wired_Decode(const uint8_t *data,uint8_t datalen)
 	ps2_gamepad.RY = data[2];
 	
 	tmp_bool = (data[6]>>4)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,0); //seltec key Ñ¡Ôñ°´¼ü
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,0); //seltec key é€‰æ‹©æŒ‰é”®
 	
 	tmp_bool = (data[6]>>6)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,1); //×óÒ¡¸Ë°´¼ü
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,1); //å·¦æ‘‡æ†æŒ‰é”®
 	
 	tmp_bool = (data[6]>>7)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,2); //ÓÒÒ¡¸Ë°´¼ü
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,2); //å³æ‘‡æ†æŒ‰é”®
 	
 	tmp_bool = (data[6]>>5)&0x01;
 	ps2_set_bit(&ps2_KeyVal,tmp_bool,3); //start
 	
-	tmp_bool = data[5]&0x0F;//È¡³öµÍ4Î»
-	if(tmp_bool==0x0F)//Ã»ÓĞÈÎºÎ°´¼ü°´ÏÂ
+	tmp_bool = data[5]&0x0F;//å–å‡ºä½4ä½
+	if(tmp_bool==0x0F)//æ²¡æœ‰ä»»ä½•æŒ‰é”®æŒ‰ä¸‹
 	{
-		ps2_set_bit(&ps2_KeyVal,0,4); //¡ü
-		ps2_set_bit(&ps2_KeyVal,0,5); //¡ú
-		ps2_set_bit(&ps2_KeyVal,0,6); //¡ı
-		ps2_set_bit(&ps2_KeyVal,0,7); //¡û
+		ps2_set_bit(&ps2_KeyVal,0,4); //â†‘
+		ps2_set_bit(&ps2_KeyVal,0,5); //â†’
+		ps2_set_bit(&ps2_KeyVal,0,6); //â†“
+		ps2_set_bit(&ps2_KeyVal,0,7); //â†
 	}
 	else if( (tmp_bool&0x01)==0 )
 	{	
 		switch ((tmp_bool>>1)&0x03)
 		{
-			case 0x00://¡ü
-				ps2_set_bit(&ps2_KeyVal,1,4); //¡ü
+			case 0x00://â†‘
+				ps2_set_bit(&ps2_KeyVal,1,4); //â†‘
 				break;
-			case 0x01://¡ú
-				ps2_set_bit(&ps2_KeyVal,1,5); //¡ú
+			case 0x01://â†’
+				ps2_set_bit(&ps2_KeyVal,1,5); //â†’
 				break;
-			case 0x02://¡ı
-				ps2_set_bit(&ps2_KeyVal,1,6); //¡ı
+			case 0x02://â†“
+				ps2_set_bit(&ps2_KeyVal,1,6); //â†“
 				break;
-			case 0x03://¡û
-				ps2_set_bit(&ps2_KeyVal,1,7); //¡û
+			case 0x03://â†
+				ps2_set_bit(&ps2_KeyVal,1,7); //â†
 				break;
 			default:
 				break;
 		}
 	}
-	else if( (tmp_bool&0x01)==1 ) //Ê×Î»Îª1,´ú±í´æÔÚ×óÅÌ2¸ö°´¼ü°´ÏÂµÄÇé¿ö
+	else if( (tmp_bool&0x01)==1 ) //é¦–ä½ä¸º1,ä»£è¡¨å­˜åœ¨å·¦ç›˜2ä¸ªæŒ‰é”®æŒ‰ä¸‹çš„æƒ…å†µ
 	{
 		switch ((tmp_bool>>1)&0x03)
 		{
-			case 0x00://¡ü¡ú
-				ps2_set_bit(&ps2_KeyVal,1,4);//¡ü
-				ps2_set_bit(&ps2_KeyVal,1,5); //¡ú
+			case 0x00://â†‘â†’
+				ps2_set_bit(&ps2_KeyVal,1,4);//â†‘
+				ps2_set_bit(&ps2_KeyVal,1,5); //â†’
 				break;
-			case 0x01://¡ı¡ú
-				ps2_set_bit(&ps2_KeyVal,1,6); //¡ı
-				ps2_set_bit(&ps2_KeyVal,1,5); //¡ú
+			case 0x01://â†“â†’
+				ps2_set_bit(&ps2_KeyVal,1,6); //â†“
+				ps2_set_bit(&ps2_KeyVal,1,5); //â†’
 				break;
-			case 0x02://¡ı¡û
-				ps2_set_bit(&ps2_KeyVal,1,6); //¡ı
-				ps2_set_bit(&ps2_KeyVal,1,7); //¡û
+			case 0x02://â†“â†
+				ps2_set_bit(&ps2_KeyVal,1,6); //â†“
+				ps2_set_bit(&ps2_KeyVal,1,7); //â†
 				break;
-			case 0x03://¡ü¡û
-				ps2_set_bit(&ps2_KeyVal,1,4); //¡ü
-				ps2_set_bit(&ps2_KeyVal,1,7); //¡û
+			case 0x03://â†‘â†
+				ps2_set_bit(&ps2_KeyVal,1,4); //â†‘
+				ps2_set_bit(&ps2_KeyVal,1,7); //â†
 				break;
 			default:
 				break;
@@ -141,34 +141,34 @@ void PS2_Wired_Decode(const uint8_t *data,uint8_t datalen)
 	}
 	
 	tmp_bool = (data[6]>>2)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,8); //×ó°â»ú2ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,8); //å·¦æ‰³æœº2å·
 	if( tmp_bool ) ps2_gamepad.LT = 255;
 	else ps2_gamepad.LT = 0;
 	
 	tmp_bool = (data[6]>>3)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,9); //ÓÒ°â»ú2ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,9); //å³æ‰³æœº2å·
 	if( tmp_bool ) ps2_gamepad.RT = 255;
 	else ps2_gamepad.RT = 0;
 	
 	tmp_bool = (data[6]>>0)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,10); //×ó°â»ú1ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,10); //å·¦æ‰³æœº1å·
 	
 	tmp_bool = (data[6]>>1)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,11); //ÓÒ°â»ú1ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,11); //å³æ‰³æœº1å·
 
 	tmp_bool = (data[5]>>4)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,12); //Ò»ºÅ,ÂÌÉ«GREEN
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,12); //ä¸€å·,ç»¿è‰²GREEN
 	
 	tmp_bool = (data[5]>>5)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,13); //¶şºÅ,ºìÉ«RED
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,13); //äºŒå·,çº¢è‰²RED
 
 	tmp_bool = (data[5]>>6)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,14); //ÈıºÅ,À¶ÑÀBLUE
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,14); //ä¸‰å·,è“ç‰™BLUE
 	
 	tmp_bool = (data[5]>>7)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,15); //ËÄºÅ,·ÛÉ«PINK
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,15); //å››å·,ç²‰è‰²PINK
 	
-	//°´¼ü»Øµ÷º¯Êı´¥·¢
+	//æŒ‰é”®å›è°ƒå‡½æ•°è§¦å‘
 	for (uint8_t key = PS2KEY_SELECT; key <= PS2KEY_4PINK; key++) 
 	{
 		GamePadKeyEventType_t event = GamePadKey_CheckEvent(ps2_KeyVal,
@@ -184,7 +184,7 @@ void PS2_Wired_Decode(const uint8_t *data,uint8_t datalen)
 	}
 }
 
-//ÎŞÏß°²×¿Ä£Ê½ÊÖ±úÊı¾İ½âÂë
+//æ— çº¿å®‰å“æ¨¡å¼æ‰‹æŸ„æ•°æ®è§£ç 
 void PS2_Wiredless_Android_Decode(const uint8_t *data,uint8_t datalen)
 {
 	uint8_t tmp_bool = 0 ;
@@ -210,45 +210,45 @@ void PS2_Wiredless_Android_Decode(const uint8_t *data,uint8_t datalen)
 	ps2_gamepad.RT = data[5];
 	
 	//data[2]
-	//Rm    Lm    select   start    ¡ú      ¡û       ¡ı        ¡ü
+	//Rm    Lm    select   start    â†’      â†       â†“        â†‘
 	//0		0		0		0		0		0		0		0
 	tmp_bool = (data[2]>>0)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,4); //¡ü
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,4); //â†‘
 	
 	tmp_bool = (data[2]>>3)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,5); //¡ú
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,5); //â†’
 	
 	tmp_bool = (data[2]>>1)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,6); //¡ı
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,6); //â†“
 	
 	tmp_bool = (data[2]>>2)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,7); //¡û
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,7); //â†
 	
 	tmp_bool = (data[2]>>5)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,0); //seltec key Ñ¡Ôñ°´¼ü	
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,0); //seltec key é€‰æ‹©æŒ‰é”®	
 	
 	tmp_bool = (data[2]>>4)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,3); //start key Ñ¡Ôñ°´¼ü
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,3); //start key é€‰æ‹©æŒ‰é”®
 	
 	tmp_bool = (data[2]>>6)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,1); //×óÒ¡¸Ë°´¼ü	
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,1); //å·¦æ‘‡æ†æŒ‰é”®	
 	
 	tmp_bool = (data[2]>>7)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,2); //ÓÒÒ¡¸Ë°´¼ü
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,2); //å³æ‘‡æ†æŒ‰é”®
 	
 	tmp_bool = (data[3]>>0)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,10); //×ó°â»ú1ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,10); //å·¦æ‰³æœº1å·
 	
 	tmp_bool = (data[3]>>1)&0x01;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,11); //ÓÒ°â»ú1ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,11); //å³æ‰³æœº1å·
 	
 	if(data[4]==0xff) tmp_bool=1;
 	else tmp_bool=0;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,8); //×ó°â»ú2ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,8); //å·¦æ‰³æœº2å·
 	
 	if(data[5]==0xff) tmp_bool=1;
 	else tmp_bool=0;
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,9); //ÓÒ°â»ú2ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,9); //å³æ‰³æœº2å·
 	
 	tmp_bool = (data[3]>>4)&0x01;//BLUE
 	ps2_set_bit(&ps2_KeyVal,tmp_bool,14);
@@ -262,7 +262,7 @@ void PS2_Wiredless_Android_Decode(const uint8_t *data,uint8_t datalen)
 	tmp_bool = (data[3]>>7)&0x01;//GREEN
 	ps2_set_bit(&ps2_KeyVal,tmp_bool,12);
 	
-	//°´¼ü»Øµ÷º¯Êı´¥·¢
+	//æŒ‰é”®å›è°ƒå‡½æ•°è§¦å‘
 	for (uint8_t key = PS2KEY_SELECT; key <= PS2KEY_4PINK; key++) 
 	{
 		GamePadKeyEventType_t event = GamePadKey_CheckEvent(ps2_KeyVal,
@@ -278,7 +278,7 @@ void PS2_Wiredless_Android_Decode(const uint8_t *data,uint8_t datalen)
 	}
 }
 
-//ÎŞÏßpcÄ£Ê½ÊÖ±úÊı¾İ½âÂë
+//æ— çº¿pcæ¨¡å¼æ‰‹æŸ„æ•°æ®è§£ç 
 void PS2_Wiredless_PC_Decode(const uint8_t *data,uint8_t datalen)
 {
 	uint8_t tmp_bool = 0;
@@ -289,30 +289,30 @@ void PS2_Wiredless_PC_Decode(const uint8_t *data,uint8_t datalen)
 	ps2_gamepad.RY = data[6];
 	
 	tmp_bool = (data[1]>>0)&0x01;//select
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,0); //seltec key Ñ¡Ôñ°´¼ü	
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,0); //seltec key é€‰æ‹©æŒ‰é”®	
 	
 	tmp_bool = (data[1]>>1)&0x01;//start
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,3); //start key Ñ¡Ôñ°´¼ü
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,3); //start key é€‰æ‹©æŒ‰é”®
 	
 	tmp_bool = (data[1]>>2)&0x01;//Lm
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,1); //×óÒ¡¸Ë°´¼ü	
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,1); //å·¦æ‘‡æ†æŒ‰é”®	
 	
 	tmp_bool = (data[1]>>3)&0x01;//Rm
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,2); //ÓÒÒ¡¸Ë°´¼ü
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,2); //å³æ‘‡æ†æŒ‰é”®
 	
 	tmp_bool = (data[0]>>4)&0x01;//L1
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,10); //×ó°â»ú1ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,10); //å·¦æ‰³æœº1å·
 	
 	tmp_bool = (data[0]>>5)&0x01;//R1
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,11); //ÓÒ°â»ú1ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,11); //å³æ‰³æœº1å·
 	
 	tmp_bool = (data[0]>>6)&0x01;//L2
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,8); //×ó°â»ú2ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,8); //å·¦æ‰³æœº2å·
 	if( tmp_bool ) ps2_gamepad.LT = 255;
 	else ps2_gamepad.LT = 0;
 	
 	tmp_bool = (data[0]>>7)&0x01;//R2
-	ps2_set_bit(&ps2_KeyVal,tmp_bool,9); //×ó°â»ú2ºÅ
+	ps2_set_bit(&ps2_KeyVal,tmp_bool,9); //å·¦æ‰³æœº2å·
 	if( tmp_bool ) ps2_gamepad.RT = 255;
 	else ps2_gamepad.RT = 0;
 	
@@ -328,60 +328,60 @@ void PS2_Wiredless_PC_Decode(const uint8_t *data,uint8_t datalen)
 	tmp_bool = (data[0]>>3)&0x01;//PINK
 	ps2_set_bit(&ps2_KeyVal,tmp_bool,15);
 	
-	tmp_bool = data[2]&0x0F;//È¡³öµÍ4Î»
-	if(tmp_bool==0x0F)//Ã»ÓĞÈÎºÎ°´¼ü°´ÏÂ
+	tmp_bool = data[2]&0x0F;//å–å‡ºä½4ä½
+	if(tmp_bool==0x0F)//æ²¡æœ‰ä»»ä½•æŒ‰é”®æŒ‰ä¸‹
 	{
-		ps2_set_bit(&ps2_KeyVal,0,4); //¡ü
-		ps2_set_bit(&ps2_KeyVal,0,5); //¡ú
-		ps2_set_bit(&ps2_KeyVal,0,6); //¡ı
-		ps2_set_bit(&ps2_KeyVal,0,7); //¡û
+		ps2_set_bit(&ps2_KeyVal,0,4); //â†‘
+		ps2_set_bit(&ps2_KeyVal,0,5); //â†’
+		ps2_set_bit(&ps2_KeyVal,0,6); //â†“
+		ps2_set_bit(&ps2_KeyVal,0,7); //â†
 	}
 	else if( (tmp_bool&0x01)==0 )
 	{	
 		switch ((tmp_bool>>1)&0x03)
 		{
-			case 0x00://¡ü
-				ps2_set_bit(&ps2_KeyVal,1,4); //¡ü
+			case 0x00://â†‘
+				ps2_set_bit(&ps2_KeyVal,1,4); //â†‘
 				break;
-			case 0x01://¡ú
-				ps2_set_bit(&ps2_KeyVal,1,5); //¡ú
+			case 0x01://â†’
+				ps2_set_bit(&ps2_KeyVal,1,5); //â†’
 				break;
-			case 0x02://¡ı
-				ps2_set_bit(&ps2_KeyVal,1,6); //¡ı
+			case 0x02://â†“
+				ps2_set_bit(&ps2_KeyVal,1,6); //â†“
 				break;
-			case 0x03://¡û
-				ps2_set_bit(&ps2_KeyVal,1,7); //¡û
+			case 0x03://â†
+				ps2_set_bit(&ps2_KeyVal,1,7); //â†
 				break;
 			default:
 				break;
 		}
 	}
-	else if( (tmp_bool&0x01)==1 ) //Ê×Î»Îª1,´ú±í´æÔÚ×óÅÌ2¸ö°´¼ü°´ÏÂµÄÇé¿ö
+	else if( (tmp_bool&0x01)==1 ) //é¦–ä½ä¸º1,ä»£è¡¨å­˜åœ¨å·¦ç›˜2ä¸ªæŒ‰é”®æŒ‰ä¸‹çš„æƒ…å†µ
 	{
 		switch ((tmp_bool>>1)&0x03)
 		{
-			case 0x00://¡ü¡ú
-				ps2_set_bit(&ps2_KeyVal,1,4);//¡ü
-				ps2_set_bit(&ps2_KeyVal,1,5); //¡ú
+			case 0x00://â†‘â†’
+				ps2_set_bit(&ps2_KeyVal,1,4);//â†‘
+				ps2_set_bit(&ps2_KeyVal,1,5); //â†’
 				break;
-			case 0x01://¡ı¡ú
-				ps2_set_bit(&ps2_KeyVal,1,6); //¡ı
-				ps2_set_bit(&ps2_KeyVal,1,5); //¡ú
+			case 0x01://â†“â†’
+				ps2_set_bit(&ps2_KeyVal,1,6); //â†“
+				ps2_set_bit(&ps2_KeyVal,1,5); //â†’
 				break;
-			case 0x02://¡ı¡û
-				ps2_set_bit(&ps2_KeyVal,1,6); //¡ı
-				ps2_set_bit(&ps2_KeyVal,1,7); //¡û
+			case 0x02://â†“â†
+				ps2_set_bit(&ps2_KeyVal,1,6); //â†“
+				ps2_set_bit(&ps2_KeyVal,1,7); //â†
 				break;
-			case 0x03://¡ü¡û
-				ps2_set_bit(&ps2_KeyVal,1,4); //¡ü
-				ps2_set_bit(&ps2_KeyVal,1,7); //¡û
+			case 0x03://â†‘â†
+				ps2_set_bit(&ps2_KeyVal,1,4); //â†‘
+				ps2_set_bit(&ps2_KeyVal,1,7); //â†
 				break;
 			default:
 				break;
 		}
 	}
 
-	//°´¼ü»Øµ÷º¯Êı´¥·¢
+	//æŒ‰é”®å›è°ƒå‡½æ•°è§¦å‘
 	for (uint8_t key = PS2KEY_SELECT; key <= PS2KEY_4PINK; key++) 
 	{
 		GamePadKeyEventType_t event = GamePadKey_CheckEvent(ps2_KeyVal,

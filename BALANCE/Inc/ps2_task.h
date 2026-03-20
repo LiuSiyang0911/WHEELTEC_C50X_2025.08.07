@@ -1,10 +1,10 @@
-#ifndef __PS2_TASK_H
+ï»¿#ifndef __PS2_TASK_H
 #define __PS2_TASK_H
 
 #include "system.h"
 
-#define PS2_TASK_PRIO		4     //Task priority //ÈÎÎñÓÅÏÈ¼¶
-#define PS2_STK_SIZE 		256   //Task stack size //ÈÎÎñ¶ÑÕ»´óĞ¡
+#define PS2_TASK_PRIO		4     //Task priority //ä»»åŠ¡ä¼˜å…ˆçº§
+#define PS2_STK_SIZE 		256   //Task stack size //ä»»åŠ¡å †æ ˆå¤§å°
 #define PS2_TASK_RATE       RATE_20_HZ 
 
 void pstwo_task(void *pvParameters);

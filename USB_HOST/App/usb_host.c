@@ -1,4 +1,4 @@
-/* USER CODE BEGIN Header */
+ï»¿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file            : usb_host.c
@@ -67,7 +67,7 @@ static void USBH_UserProcess(USBH_HandleTypeDef *phost, uint8_t id);
   */
 void MX_USB_HOST_Init(void)
 {
-	//ÊÖ±úÄ¬ÈÏ½Ó¿Ú
+	//æ‰‹æŸ„é»˜è®¤æŽ¥å£
 	GamePadInterface = &GamePadDefalut;
 	
 	extern USBH_ClassTypeDef  GamePad_HID_Class;
@@ -76,11 +76,11 @@ void MX_USB_HOST_Init(void)
 	{
 		Error_Handler();
 	}
-	if (USBH_RegisterClass(&hUsbHostFS, &GamePad_HID_Class) != USBH_OK) //×¢²áps2 hidÀà
+	if (USBH_RegisterClass(&hUsbHostFS, &GamePad_HID_Class) != USBH_OK) //æ³¨å†Œps2 hidç±»
 	{
 		Error_Handler();
 	}
-	if (USBH_RegisterClass(&hUsbHostFS, &GamePad_NonStdHID_Class) != USBH_OK) //×¢²áÎÞÏßÊÖ±úps2 hidÀà
+	if (USBH_RegisterClass(&hUsbHostFS, &GamePad_NonStdHID_Class) != USBH_OK) //æ³¨å†Œæ— çº¿æ‰‹æŸ„ps2 hidç±»
 	{
 		Error_Handler();
 	}
@@ -124,13 +124,13 @@ static void USBH_UserProcess  (USBH_HandleTypeDef *phost, uint8_t id)
 
 extern USBH_StatusTypeDef USBH_HID_PS2_Decode(USBH_HandleTypeDef *phost);
 
-//usbÊý¾Ý¶ÁÈ¡ºó,×îÖÕ½øÈë´Ë»Øµ÷º¯Êý.Êý¾Ý½âÂëÔÚ´Ëº¯Êý½øÐÐ(ÈÎÎñ»·¾³)
+//usbæ•°æ®è¯»å–åŽ,æœ€ç»ˆè¿›å…¥æ­¤å›žè°ƒå‡½æ•°.æ•°æ®è§£ç åœ¨æ­¤å‡½æ•°è¿›è¡Œ(ä»»åŠ¡çŽ¯å¢ƒ)
 void USBH_HID_EventCallback(USBH_HandleTypeDef *phost)
 {
-	//ÓÎÏ·ÊÖ±úÊý¾Ý½âÂë
+	//æ¸¸æˆæ‰‹æŸ„æ•°æ®è§£ç 
 	USBH_HID_PS2_Decode(phost);
 	
-	//ÓÎÏ·ÊÖ±úÄ£Ê½Æô¶¯
+	//æ¸¸æˆæ‰‹æŸ„æ¨¡å¼å¯åŠ¨
 	if( GamePadInterface->StartFlag == 1 && Get_Control_Mode(_PS2_Control)==0 && SysVal.Time_count>=CONTROL_DELAY && GamePadInterface->LY > 150 )
 		Set_Control_Mode(_PS2_Control);
 	

@@ -1,14 +1,14 @@
-#ifndef __USRATX_H
+Ôªø#ifndef __USRATX_H
 #define __USRATX_H 
 #include "sys.h"
 
-//APPøÿ÷∆œ‡πÿ±‰¡øΩ·ππÃÂ
+//APPÊéßÂà∂Áõ∏ÂÖ≥ÂèòÈáèÁªìÊûÑ‰Ωì
 typedef struct{
-	u8 TurnPage;      //APPΩ¯»Î◊™œÚ“≥√Ê±Í÷æŒª
-	u8 DirectionFlag; //APP∑ΩœÚ±Í÷æ
-	u8 ParamSaveFlag; //APP±£¥Ê≤Œ ˝±Í÷æŒª
-	u8 ParamSendflag; //APP∑¢ÀÕ ˝æ›±Í÷æŒª
-	u8 TurnFlag;      //APP◊™œÚ±Í÷æ
+	u8 TurnPage;      //APPËøõÂÖ•ËΩ¨ÂêëÈ°µÈù¢Ê†áÂøó‰Ωç
+	u8 DirectionFlag; //APPÊñπÂêëÊ†áÂøó
+	u8 ParamSaveFlag; //APP‰øùÂ≠òÂèÇÊï∞Ê†áÂøó‰Ωç
+	u8 ParamSendflag; //APPÂèëÈÄÅÊï∞ÊçÆÊ†áÂøó‰Ωç
+	u8 TurnFlag;      //APPËΩ¨ÂêëÊ†áÂøó
 }APP_CONTROL_t;
 
 
@@ -17,7 +17,7 @@ void APPKey_Param_Init(APP_CONTROL_t *p);
 
 /*--------UART1 config--------*/
 #define ENABLE_UART1_CLOCK  RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1,ENABLE)
-#if 1 //PA9°¢PA10
+#if 1 //PA9„ÄÅPA10
 #define ENABLE_UART1_TX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE)
 #define ENABLE_UART1_RX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE)
 #define UART1_TX_PORT       GPIOA
@@ -26,7 +26,7 @@ void APPKey_Param_Init(APP_CONTROL_t *p);
 #define UART1_RX_PIN        GPIO_Pin_10
 #define UART1_TX_Soure      GPIO_PinSource9
 #define UART1_RX_Soure      GPIO_PinSource10
-#else //PB6°¢PB7
+#else //PB6„ÄÅPB7
 #define ENABLE_UART1_TX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB,ENABLE)
 #define ENABLE_UART1_RX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB,ENABLE)
 #define UART1_TX_PORT       GPIOB
@@ -45,7 +45,7 @@ void uart1_send(u8 data);
 
 /*--------UART3 config--------*/
 #define ENABLE_UART3_CLOCK  RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART3,ENABLE)
-#if 1 //PB10°¢PB11
+#if 1 //PB10„ÄÅPB11
 #define ENABLE_UART3_TX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB,ENABLE)
 #define ENABLE_UART3_RX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB,ENABLE)
 #define UART3_TX_PORT       GPIOB
@@ -54,7 +54,7 @@ void uart1_send(u8 data);
 #define UART3_RX_PIN        GPIO_Pin_11
 #define UART3_TX_Soure      GPIO_PinSource10
 #define UART3_RX_Soure      GPIO_PinSource11
-#else //PD8°¢PD9
+#else //PD8„ÄÅPD9
 #define ENABLE_UART3_TX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD,ENABLE)
 #define ENABLE_UART3_RX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD,ENABLE)
 #define UART3_TX_PORT       GPIOD
@@ -73,7 +73,7 @@ void uart3_send(u8 data);
 
 /*--------UART4 config--------*/
 #define ENABLE_UART4_CLOCK  RCC_APB1PeriphClockCmd(RCC_APB1Periph_UART4,ENABLE)
-#if 1 //PC10°¢PC11
+#if 1 //PC10„ÄÅPC11
 #define ENABLE_UART4_TX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC,ENABLE)
 #define ENABLE_UART4_RX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC,ENABLE)
 #define UART4_TX_PORT       GPIOC
@@ -82,7 +82,7 @@ void uart3_send(u8 data);
 #define UART4_RX_PIN        GPIO_Pin_11
 #define UART4_TX_Soure      GPIO_PinSource10
 #define UART4_RX_Soure      GPIO_PinSource11
-#else //PA0°¢PA1
+#else //PA0„ÄÅPA1
 #define ENABLE_UART4_TX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE)
 #define ENABLE_UART4_RX_PIN_CLOCK   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA,ENABLE)
 #define UART4_TX_PORT       GPIOA

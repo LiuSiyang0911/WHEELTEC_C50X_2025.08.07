@@ -92,7 +92,7 @@ Each chassis type supports multiple hardware variants (e.g., Ackermann has 10). 
 
 ## Coding Conventions
 
-- All source files use GB2312/GBK encoding for Chinese comments
+- All source files use **UTF-8 with BOM** (`utf-8-sig`) encoding — converted from GB2312/GBK in March 2026 for Keil AC5 compatibility
 - Most functions and variables use English names with Chinese comments alongside
 - Motor indices: Motor_A (1), Motor_B (2), Motor_C (3), Motor_D (4)
 - Rate macros defined in `USER/system.h`: `RATE_1HZ` through `RATE_1000HZ`

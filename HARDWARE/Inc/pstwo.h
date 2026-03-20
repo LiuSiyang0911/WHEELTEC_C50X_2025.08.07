@@ -1,9 +1,9 @@
-#ifndef __PSTWO_H
+ï»¿#ifndef __PSTWO_H
 #define __PSTWO_H
 #include "sys.h"
 
 /*--------PS2 config--------*/
-//PS2ÊÖ±úÒı½Å
+//PS2æ‰‹æŸ„å¼•è„š
 #define ENABLE_PS2_DI_PIN_CLOCK  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE, ENABLE)
 #define ENABLE_PS2_DO_PIN_CLOCK  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE, ENABLE)
 #define ENABLE_PS2_CS_PIN_CLOCK  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE, ENABLE)
@@ -19,19 +19,19 @@
 #define PS2_CS_PIN  GPIO_Pin_2
 #define PS2_CLK_PIN GPIO_Pin_3
 
-#define DI   PEin(0)     //Input pin //ÊäÈëÒı½Å
+#define DI   PEin(0)     //Input pin //è¾“å…¥å¼•è„š
 
-#define DO_H PEout(1)=1   //Command height //ÃüÁîÎ»¸ß
-#define DO_L PEout(1)=0   //Command low //ÃüÁîÎ»µÍ
+#define DO_H PEout(1)=1   //Command height //å‘½ä»¤ä½é«˜
+#define DO_L PEout(1)=0   //Command low //å‘½ä»¤ä½ä½
 
-#define CS_H PEout(2)=1  //Cs pull up //CSÀ­¸ß
-#define CS_L PEout(2)=0  //Cs drawdown //CSÀ­µÍ
+#define CS_H PEout(2)=1  //Cs pull up //CSæ‹‰é«˜
+#define CS_L PEout(2)=0  //Cs drawdown //CSæ‹‰ä½
 
-#define CLK_H PEout(3)=1 //Clock lift //Ê±ÖÓÀ­¸ß
-#define CLK_L PEout(3)=0 //Clock down //Ê±ÖÓÀ­µÍ
+#define CLK_H PEout(3)=1 //Clock lift //æ—¶é’Ÿæ‹‰é«˜
+#define CLK_L PEout(3)=0 //Clock down //æ—¶é’Ÿæ‹‰ä½
 /*----------------------------------*/
 
-//¶ÔÍâ½Ó¿Ú
+//å¯¹å¤–æ¥å£
 void PS2_Init(void);
 void PS2_Read(void);
 void PS2_Key_Param_Init(void);

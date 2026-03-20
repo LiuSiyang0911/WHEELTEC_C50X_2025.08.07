@@ -1,4 +1,4 @@
-#ifndef __MPU6050_H
+ï»¿#ifndef __MPU6050_H
 #define __MPU6050_H
 #include "sys.h"
 
@@ -353,7 +353,7 @@
 #define MPU6050_WHO_AM_I_BIT        6
 #define MPU6050_WHO_AM_I_LENGTH     6
 
-//¹©Íâ²¿µ÷ÓÃµÄAPI
+//ä¾›å¤–éƒ¨è°ƒç”¨çš„API
 u8 MPU6050_initialize(void);
 uint8_t MPU6050_getDeviceID(void);
 void MPU6050_Get_Accelscope(void);
