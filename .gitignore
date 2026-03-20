@@ -18,6 +18,9 @@ OBJ/
 # VS Code settings
 .vscode/
 
+# Keil debug config
+DebugConfig/
+
 # Debug log files
 *.log
 *.log.lock
