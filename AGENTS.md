@@ -4,11 +4,9 @@ AI 编码代理在此仓库中工作的指引。
 
 ## 项目概述
 
-WHEELTEC C50X 阿克曼（Ackermann）底盘机器人固件，目标芯片 **STM32F407VE**（Cortex-M4），运行 **FreeRTOS**。
+WHEELTEC C50X 多底盘机器人固件，目标芯片 **STM32F407VE**（Cortex-M4），运行 **FreeRTOS**。支持 5 种底盘类型（阿克曼/差速/麦轮/四驱/全向），48+ 硬件子型号，运行时通过 ADC 电位器选择。
 
-语言：C。源码中中英双语注释，文件编码 GB2312/GBK。
-
-**仅关注 `AKM_CAR`（阿克曼车型）**，其他车型（差速/麦轮/四驱/全向）存在于条件编译中，无需处理。
+语言：C。源码中中英双语注释，文件编码 **UTF-8 with BOM**（`utf-8-sig`）。
 
 ## 构建系统
 
@@ -47,6 +45,7 @@ WHEELTEC C50X 阿克曼（Ackermann）底盘机器人固件，目标芯片 **STM
 | `MiddleWares/` | USB Host 中间件（厂商代码） |
 | `USB_HOST/` | USB 主机应用层（手柄适配） |
 | `SYSTEM/` | 底层系统初始化（时钟、延时、Flash） |
+| `docs/` | 协议文档（蓝牙 APP 协议等） |
 
 ## FreeRTOS 任务
 
@@ -85,6 +84,44 @@ WHEELTEC C50X 阿克曼（Ackermann）底盘机器人固件，目标芯片 **STM
 - **ADC2**：仅 AKM 初始化，用于舵机滑动变阻器反馈
 - **Encoder C/D 不初始化**
 
+## 控制流
+
+```
+main() → systemInit() → xTaskCreate(start_task) → vTaskStartScheduler()
+
+输入源 (UART3/CAN/UART4/PS2/USB/RC)
+    ↓ UartxControll_Callback / CAN1_RX0_IRQHandler
+    ↓ 写入: robot_control.{Vx, Vy, Vz, Mode}
+    ↓
+Balance_task (100Hz):
+    Get_Robot_FeedBack()        ← 读取编码器速度 + 舵机位置
+    Robot_SelfCheck()           ← 启动自检（前 10 秒）
+    ResponseControl()           ← 指令丢失超时处理
+    Drive_Motor(Vx, Vy, Vz)    ← 逆运动学 → 各电机目标值
+    Incremental_MOTOR(PI, ...)  ← PI 控制器: 目标 vs 编码器 → PWM
+    Set_Pwm(A, B, C, D, servo) ← 输出到 TIM8 PWM + 方向 GPIO
+    ↓
+data_task (20Hz):
+    Kinematics_*()              ← 正运动学: 编码器 → Vx, Vy, Vz
+    发送 24 字节遥测帧          → UART3/CAN
+```
+
+## PI 速度控制器
+
+增量式 PI 公式（`balance_task.c`）：
+```
+ΔOutput = Kp × (Bias − LastBias) + Ki × Bias
+Output += ΔOutput
+```
+`Bias = Target − Encoder_feedback`。默认增益：`VEL_KP=300, VEL_KI=300`（可按子型号覆盖）。每个电机一个 `PI_CONTROLLER` 实例（`PI_MotorA` ~ `PI_MotorD`），AKM 额外有 `PI_Servo`。
+
+## 安全特性
+
+- **CONTROL_DELAY** = 1000 个 tick（100Hz 下 10 秒）：启动期间忽略运动指令，用于 IMU 校准和自检
+- **自检**：CONTROL_DELAY 后短暂以 0.2 m/s 驱动，验证编码器反馈
+- **指令丢失超时**：`robot_control.command_lostcount` 每个 Balance_task 周期递增，超时后 `UnResponseControl()` 停止所有电机
+- **驻车模式**：静止时自动清除 PWM 残余，减少功耗和噪声
+
 ## 关键数据结构
 
 `CarType/Inc/robot_init.h`：
@@ -101,7 +138,7 @@ WHEELTEC C50X 阿克曼（Ackermann）底盘机器人固件，目标芯片 **STM
 ## 编码规范
 
 ### 文件编码
-源文件使用 **GB2312/GBK 编码**存放中文注释，不要转换为 UTF-8。
+源文件使用 **UTF-8 with BOM**（`utf-8-sig`）编码 — 2026 年 3 月从 GB2312/GBK 批量转换，兼容 Keil AC5。新建文件也必须使用此编码。
 
 ### 头文件保护
 `#ifndef __NAME_H` / `#define __NAME_H`（双下划线前缀）。
@@ -149,7 +186,8 @@ AKM 专用代码用 `#if defined AKM_CAR` 包裹。在 `balance_task.c`、`data_
 ## 约束
 
 - **不要修改** `FWLIB/`、`FreeRTOS/`、`CORE/`、`MiddleWares/`（厂商代码）
-- 只能定义一个底盘类型 `AKM_CAR`
+- 每个构建目标只能定义一个底盘类型（`AKM_CAR`、`DIFF_CAR`、`MEC_CAR`、`_4WD_CAR`、`OMNI_CAR`）
 - 硬件专用代码必须检查 `SysVal.HardWare_Ver`
 - 电机输出通过 TIM8 PWM（10kHz）+ 方向 GPIO
-- 编码器反馈 AKM 使用 T 法（EXTI + TIM6），非正交模式
+- 编码器反馈：AKM 使用 T 法（EXTI + TIM6），其他车型使用正交模式（TIM2/3/4/5）
+- 新建源文件必须使用 UTF-8 with BOM 编码
