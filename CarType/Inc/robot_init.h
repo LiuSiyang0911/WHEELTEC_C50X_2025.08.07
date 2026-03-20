@@ -59,8 +59,8 @@ typedef struct
 	float voltage;
 	
 	//用于控制机器人运动的pid参数
-	int V_KP;
-	int V_KI;
+	float V_KP;
+	float V_KI;
 	
 }ROBOT_t;
 
@@ -88,8 +88,8 @@ void Robot_Select(void);
 #define   EncoderMultiples 4
 
 //默认PID参数
-#define VEL_KP 300
-#define VEL_KI 300
+#define VEL_KP 300.0f
+#define VEL_KI 300.0f
 
 //不同类别车型下的参数
 #if defined AKM_CAR

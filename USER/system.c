@@ -19,6 +19,7 @@ All rights reserved
 ***********************************************/
 
 #include "system.h"
+#include "debug_uart.h"
 
 //ϵͳ��ر���
 SYS_VAL_t SysVal;
@@ -48,7 +49,8 @@ void systemInit(void)
     //can be used to communicate with ROS terminal
     //����1��ʼ����ͨ�Ų�����115200����������ROS��ͨ��
     UART1_Init(115200);
-	
+    Debug_UART_DMA_Init(); //调试串口DMA初始化(USART1_TX → DMA2_Stream7)
+
 	//���IMUΪMPU6050,���Ǿɰ�C50C
 	if( MPU6050_DEFAULT_ADDRESS == MPU6050_getDeviceID() )
 	{

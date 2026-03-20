@@ -1,6 +1,7 @@
 ﻿#include "uartx_callback.h"
 #include "data_task.h"
 #include "balance_task.h"
+#include "debug_uart.h"
 
 //用于接收数据的结构体
 RECEIVE_DATA Receive_Data;
@@ -132,14 +133,9 @@ int USART1_IRQHandler(void)
     if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET) //Check if data is received //判断是否接收到数据
     {
         Usart_Receive = USART_ReceiveData(USART1);//Read the data //读取数据
-		
-		// Data is not processed until 25 seconds after startup
-		//开机 CONTROL_DELAY 秒前不处理数据
-        if(SysVal.Time_count<CONTROL_DELAY)
-            return 0;	//前期不进入中断
 
-		//处理机器人串口控制数据
-        UartxControll_Callback(USART1,Usart_Receive);
+		//调试串口接收: 转发到调试协议状态机
+        Debug_ProcessRxByte(Usart_Receive);
     }
     return 0;
 }

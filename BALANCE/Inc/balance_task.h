@@ -65,9 +65,9 @@ typedef struct{
 	float LastBias;// 上一次的偏差
 	float LastestBias;//上两次的偏差
 	int Output;    // 输出
-	int kp;        // kp值
-	int ki;        // ki值
-	int kd;        // kd值
+	float kp;      // kp值
+	float ki;      // ki值
+	float kd;      // kd值
 }PI_CONTROLLER;
 
 //顶配阿克曼专用变量,用于舵机非自锁功能的实现
@@ -106,9 +106,9 @@ extern PI_CONTROLLER PI_MotorA,PI_MotorB,PI_MotorC,PI_MotorD,PI_Servo;
 //对外函数
 void Balance_task(void *pvParameters); //任务声明
 //void Akm_ReadServo_Param(void);//从Flash读取阿克曼舵机的信息
-void PI_Controller_Init(PI_CONTROLLER* p,int kp,int ki); //软件初始化函数
+void PI_Controller_Init(PI_CONTROLLER* p,float kp,float ki); //软件初始化函数
 void ROBOT_CONTROL_t_Init(ROBOT_CONTROL_t* p);
-void  Set_Robot_PI_Param(int kp,int ki,int kd); //PI控制器设置参数
+void  Set_Robot_PI_Param(float kp,float ki,float kd); //PI控制器设置参数
 float rad_to_angle(const float rad);  //角度与弧度互转
 float angle_to_rad(const float angle);//角度与弧度互转
 float Akm_Vz_to_Angle(float Vx,float Vz);//将阿克曼的目标速度转换为左前轮转角
@@ -120,7 +120,7 @@ void FlashParam_Read(void);
 static void ROBOT_SELFCHECK_t_Init(ROBOT_SELFCHECK_t* p); //初始化类
 
 static void PI_Controller_Reset(PI_CONTROLLER *p); //PI控制类
-static void PI_SetParam(PI_CONTROLLER* p,int kp,int ki,int kd);
+static void PI_SetParam(PI_CONTROLLER* p,float kp,float ki,float kd);
 static int Incremental_MOTOR(PI_CONTROLLER* p,float current,float target);
 static int Incremental_Servo(PI_CONTROLLER* p,float current,float target);
 static uint8_t PI_Clear_Output(PI_CONTROLLER* p);

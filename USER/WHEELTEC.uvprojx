@@ -596,6 +596,11 @@
               <FilePath>..\HARDWARE\encoder.c</FilePath>
             </File>
             <File>
+              <FileName>debug_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\debug_uart.c</FilePath>
+            </File>
+            <File>
               <FileName>enable_key.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\HARDWARE\enable_key.c</FilePath>
@@ -1626,6 +1631,11 @@
               <FileName>encoder.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\HARDWARE\encoder.c</FilePath>
+            </File>
+            <File>
+              <FileName>debug_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\debug_uart.c</FilePath>
             </File>
             <File>
               <FileName>enable_key.c</FileName>
@@ -2660,6 +2670,11 @@
               <FilePath>..\HARDWARE\encoder.c</FilePath>
             </File>
             <File>
+              <FileName>debug_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\debug_uart.c</FilePath>
+            </File>
+            <File>
               <FileName>enable_key.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\HARDWARE\enable_key.c</FilePath>
@@ -3692,6 +3707,11 @@
               <FilePath>..\HARDWARE\encoder.c</FilePath>
             </File>
             <File>
+              <FileName>debug_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\debug_uart.c</FilePath>
+            </File>
+            <File>
               <FileName>enable_key.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\HARDWARE\enable_key.c</FilePath>
@@ -4722,6 +4742,11 @@
               <FileName>encoder.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\HARDWARE\encoder.c</FilePath>
+            </File>
+            <File>
+              <FileName>debug_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\debug_uart.c</FilePath>
             </File>
             <File>
               <FileName>enable_key.c</FileName>

@@ -1,5 +1,7 @@
 ﻿#include "balance_task.h"
 #include "filter.h"
+#include "debug_uart.h"
+#include <string.h>
 
 //与小车控制相关
 ROBOT_CONTROL_t robot_control;
@@ -173,6 +175,9 @@ void Balance_task(void *pvParameters)
 		}
 		
 		
+		//调试串口: 100Hz发送编码器/PID数据帧(DMA非阻塞)
+		Debug_SendDataFrame();
+
 		//保存FLash参数,内容包含阿克曼参数、纠偏系数等
 		uint8_t flash_check = 0;
 		flash_check = FlashParam_Save( &appkey.ParamSaveFlag ); //保存Flash参数
@@ -194,24 +199,24 @@ Author: WHEELTEC
 返回  值：无
 作    者：WHEELTEC
 **************************************************************************/
-static void PI_SetParam(PI_CONTROLLER* p,int kp,int ki,int kd)
+static void PI_SetParam(PI_CONTROLLER* p,float kp,float ki,float kd)
 {
 	//PID参数不可为负,也不可为0.
-	if( kp >= 0 ) 
+	if( kp >= 0 )
 	{
 		p->kp = kp;
 	}
-	if( ki >= 0 ) 
+	if( ki >= 0 )
 	{
 		p->ki = ki;
 	}
-	if( kd >= 0 ) 
+	if( kd >= 0 )
 	{
-		p->ki = ki;
+		p->kd = kd;
 	}
 }
 
-void Set_Robot_PI_Param(int kp,int ki,int kd)
+void Set_Robot_PI_Param(float kp,float ki,float kd)
 {
 	if( kp >= 0 ) robot.V_KP = kp;
 	if( ki >= 0 ) robot.V_KI = ki;
@@ -1774,11 +1779,9 @@ static void Get_Robot_FeedBack(void)
 		if ((now_us - last_pulse_update[0]) > 100000u) encoder_T_velocity_raw[0] = 0.0f;
 		if ((now_us - last_pulse_update[1]) > 100000u) encoder_T_velocity_raw[1] = 0.0f;
 		//T法速度已由EXTI ISR计算, 此处除以轮径补偿系数并经Kalman滤波
-//		any_printf(USART1, "%.4f,%.4f\r\n",encoder_T_velocity_raw[0], encoder_T_velocity_raw[1]);
 		//T-method velocity is computed in EXTI ISR; apply wheel correction and Kalman filter
 		robot.MOTOR_A.Encoder = Kalman_Filter_1D(&Kalman_MotorA, encoder_T_velocity_raw[0] / LeftWheelDiff);
 		robot.MOTOR_B.Encoder = Kalman_Filter_1D(&Kalman_MotorB, encoder_T_velocity_raw[1] / RightWheelDiff);
-		any_printf(USART1, "%.4f,%.4f\r\n",robot.MOTOR_A.Encoder, robot.MOTOR_B.Encoder);
         //Gets the position of the slide, representing the front wheel rotation Angle
         //获取滑轨位置,代表前轮转角角度.该数值由ADC2负责采集,DMA完成搬运,此处仅需处理数据即可
 		robot.SERVO.Encoder = get_DMA_SlideRes();
@@ -2017,14 +2020,14 @@ static uint8_t FlashParam_Save(uint8_t *flag)
 		*flag = 0;
 		check = 1;
 		taskENTER_CRITICAL();//操作FLash进入临界，保证数据安全
-		int buf[7]={0};
+		uint32_t buf[7]={0};
 		buf[0] = Akm_Servo.Min;
 		buf[1] = Akm_Servo.Mid;
 		buf[2] = Akm_Servo.Max;
 		buf[3] = robot_control.LineDiffParam;
-		buf[4] = *((int32_t*)&robot_control.rc_speed);
-		buf[5] = robot.V_KP;
-		buf[6] = robot.V_KI;
+		memcpy(&buf[4], &robot_control.rc_speed, 4); //float→uint32保持IEEE-754位模式
+		memcpy(&buf[5], &robot.V_KP, 4);             //float→uint32保持IEEE-754位模式
+		memcpy(&buf[6], &robot.V_KI, 4);             //float→uint32保持IEEE-754位模式
 		check += Write_Flash( (u32*)buf , 7);
 		
 		taskEXIT_CRITICAL();//退出临界
@@ -2051,21 +2054,25 @@ void FlashParam_Read(void)
 	
 	
 	read = Read_Flash(4);//速度
-	if( read!=0xffffffff ) robot_control.rc_speed = *((float*)&read);
+	if( read!=0xffffffff ) memcpy(&robot_control.rc_speed, &read, 4);
 	if( robot_control.rc_speed < 0 || robot_control.rc_speed > 10000 )//异常速度数据过滤
 		robot_control.rc_speed = 500;
 	
 	
 	read = Read_Flash(5);//KP参数
-	if( read!=0xffffffff ) 
+	if( read!=0xffffffff )
 	{
-		Set_Robot_PI_Param(read,-1,-1);
+		float kp_val;
+		memcpy(&kp_val, &read, 4); //uint32→float保持IEEE-754位模式
+		Set_Robot_PI_Param(kp_val,-1.0f,-1.0f);
 	}
-	
+
 	read = Read_Flash(6);//KI参数
-	if( read!=0xffffffff ) 
+	if( read!=0xffffffff )
 	{
-		Set_Robot_PI_Param(-1,read,-1);
+		float ki_val;
+		memcpy(&ki_val, &read, 4); //uint32→float保持IEEE-754位模式
+		Set_Robot_PI_Param(-1.0f,ki_val,-1.0f);
 	}
 }
 
@@ -2253,7 +2260,7 @@ Author: WHEELTEC
 返回  值：无
 作    者：WHEELTEC
 **************************************************************************/
-void PI_Controller_Init(PI_CONTROLLER* p,int kp,int ki)
+void PI_Controller_Init(PI_CONTROLLER* p,float kp,float ki)
 {
 	p->Bias = 0;
 	p->LastBias = 0;
