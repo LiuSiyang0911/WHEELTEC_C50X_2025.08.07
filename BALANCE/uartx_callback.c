@@ -262,7 +262,7 @@ int UART4_IRQHandler(void)
             }
             else if( Receive[1]==0x23 ) //APP上点击“发送所有数据”处理方法
             {
-                float num;
+                float num=0;
                 u8 dataIndex=0;
                 float dataArray[9];
 
