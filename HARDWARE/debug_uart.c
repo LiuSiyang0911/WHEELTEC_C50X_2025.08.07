@@ -7,7 +7,7 @@
 /*===========================================================================
  * 调试串口模块 - UART1 DMA发送 + 中断接收
  *
- * TX: DMA2_Stream7_Channel4 → USART1_TX, 100Hz数据帧(32B) + 按需参数帧(40B)
+ * TX: DMA2_Stream7_Channel4 → USART1_TX, 100Hz数据帧(40B) + 按需参数帧(40B)
  * RX: USART1 RXNE中断 → 状态机解析命令帧
  *===========================================================================*/
 
@@ -177,18 +177,20 @@ void DMA2_Stream7_IRQHandler(void)
 /*===========================================================================
  * TX数据帧组装与发送 (从Balance_task 100Hz调用)
  *
- * 帧格式 (32字节):
+ * 帧格式 (40字节):
  *   [0-1]   0xAA 0x55
  *   [2]     FrameID = 0x01
- *   [3-6]   raw_speed_A   (float, T法原始速度 m/s)
- *   [7-10]  raw_speed_B   (float, T法原始速度 m/s)
- *   [11-14] filtered_A    (float, Kalman滤波后 m/s)
- *   [15-18] filtered_B    (float, Kalman滤波后 m/s)
- *   [19-22] target_A      (float, 目标速度 m/s)
- *   [23-26] target_B      (float, 目标速度 m/s)
- *   [27-28] output_A      (int16, PID输出 PWM)
- *   [29-30] output_B      (int16, PID输出 PWM)
- *   [31]    checksum      (XOR of bytes 0..30)
+ *   [3-6]   t_raw_A       (float, T法原始速度 m/s)
+ *   [7-10]  t_raw_B       (float, T法原始速度 m/s)
+ *   [11-14] m_raw_A       (float, M法原始速度 m/s)
+ *   [15-18] m_raw_B       (float, M法原始速度 m/s)
+ *   [19-22] final_A       (float, 融合后反馈速度 m/s)
+ *   [23-26] final_B       (float, 融合后反馈速度 m/s)
+ *   [27-30] target_A      (float, 目标速度 m/s)
+ *   [31-34] target_B      (float, 目标速度 m/s)
+ *   [35-36] output_A      (int16, PID输出 PWM)
+ *   [37-38] output_B      (int16, PID输出 PWM)
+ *   [39]    checksum      (XOR of bytes 0..38)
  *===========================================================================*/
 void Debug_SendDataFrame(void)
 {
@@ -215,28 +217,32 @@ void Debug_SendDataFrame(void)
 	#if defined AKM_CAR
 		pack_float(&debug_tx_buf[3],  encoder_T_velocity_raw[0]);
 		pack_float(&debug_tx_buf[7],  encoder_T_velocity_raw[1]);
+		pack_float(&debug_tx_buf[11], akm_encoder_m_raw[0]);
+		pack_float(&debug_tx_buf[15], akm_encoder_m_raw[1]);
 	#else
 		pack_float(&debug_tx_buf[3],  0.0f);
 		pack_float(&debug_tx_buf[7],  0.0f);
+		pack_float(&debug_tx_buf[11], 0.0f);
+		pack_float(&debug_tx_buf[15], 0.0f);
 	#endif
 
-	/* Kalman滤波后速度 */
-	pack_float(&debug_tx_buf[11], robot.MOTOR_A.Encoder);
-	pack_float(&debug_tx_buf[15], robot.MOTOR_B.Encoder);
+	/* 融合并滤波后的闭环反馈速度 */
+	pack_float(&debug_tx_buf[19], robot.MOTOR_A.Encoder);
+	pack_float(&debug_tx_buf[23], robot.MOTOR_B.Encoder);
 
 	/* 目标速度 */
-	pack_float(&debug_tx_buf[19], robot.MOTOR_A.Target);
-	pack_float(&debug_tx_buf[23], robot.MOTOR_B.Target);
+	pack_float(&debug_tx_buf[27], robot.MOTOR_A.Target);
+	pack_float(&debug_tx_buf[31], robot.MOTOR_B.Target);
 
 	/* PID输出PWM */
-	pack_int16(&debug_tx_buf[27], (int16_t)robot.MOTOR_A.Output);
-	pack_int16(&debug_tx_buf[29], (int16_t)robot.MOTOR_B.Output);
+	pack_int16(&debug_tx_buf[35], (int16_t)robot.MOTOR_A.Output);
+	pack_int16(&debug_tx_buf[37], (int16_t)robot.MOTOR_B.Output);
 
 	/* XOR校验 */
 	xor_sum = 0;
-	for (i = 0; i < 31; i++)
+	for (i = 0; i < 39; i++)
 		xor_sum ^= debug_tx_buf[i];
-	debug_tx_buf[31] = xor_sum;
+	debug_tx_buf[39] = xor_sum;
 
 	/* 触发DMA发送 */
 	dma_start_tx(DEBUG_DATA_FRAME_LEN);

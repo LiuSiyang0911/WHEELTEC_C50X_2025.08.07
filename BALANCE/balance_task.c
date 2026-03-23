@@ -29,13 +29,22 @@ PI_CONTROLLER PI_MotorA,PI_MotorB,PI_MotorC,PI_MotorD,PI_Servo;
 
 // 为左后轮(电机A)定义滤波器
 Kalman_TypeDef Kalman_MotorA = {
-    .lastP = 0.01, .Q = 6.5e-6f, .R = 1.11e-3f, .out = 0
+    .lastP = 0.01, .Q = 5.0e-5f, .R = 2.0e-3f, .out = 0
 };
 
 // 为右后轮(电机B)定义滤波器
 Kalman_TypeDef Kalman_MotorB = {
-    .lastP = 0.01, .Q = 6.5e-6f, .R = 1.11e-3f, .out = 0
+    .lastP = 0.01, .Q = 5.0e-5f, .R = 2.0e-3f, .out = 0
 };
+
+#if defined AKM_CAR
+#define AKM_BLEND_T_SPEED_LOW      0.12f
+#define AKM_BLEND_M_SPEED_HIGH     0.28f
+#define AKM_BLEND_INV_SPAN         (1.0f / (AKM_BLEND_M_SPEED_HIGH - AKM_BLEND_T_SPEED_LOW))
+#define AKM_FEEDBACK_ZERO_EPS      0.001f
+float akm_encoder_m_raw[2] = {0.0f, 0.0f};
+float akm_encoder_feedback_raw[2] = {0.0f, 0.0f};
+#endif
 
 #if defined AKM_CAR
 AKM_SERVO_UNLOCK_t ServoState;//舵机非自锁控制器
@@ -1740,6 +1749,36 @@ Author: WHEELTEC
 返回  值：无
 作    者：WHEELTEC
 **************************************************************************/
+#if defined AKM_CAR
+static float AKM_MixEncoderFeedback(float t_speed, float m_speed, float last_feedback)
+{
+	float v_ref;
+	float alpha;
+	float t_abs;
+	float m_abs;
+
+	v_ref = fabs(last_feedback);
+	if( v_ref < AKM_FEEDBACK_ZERO_EPS )
+	{
+		t_abs = fabs(t_speed);
+		m_abs = fabs(m_speed);
+		v_ref = (t_abs > m_abs) ? t_abs : m_abs;
+	}
+
+	if( v_ref < AKM_BLEND_T_SPEED_LOW )
+		return t_speed;
+
+	if( v_ref >= AKM_BLEND_M_SPEED_HIGH )
+		return m_speed;
+
+	alpha = (v_ref - AKM_BLEND_T_SPEED_LOW) * AKM_BLEND_INV_SPAN;
+	if( alpha < 0.0f ) alpha = 0.0f;
+	if( alpha > 1.0f ) alpha = 1.0f;
+
+	return ((1.0f - alpha) * t_speed) + (alpha * m_speed);
+}
+#endif
+
 static void Get_Robot_FeedBack(void)
 {
     //Retrieves the original data of the encoder
@@ -1767,6 +1806,11 @@ static void Get_Robot_FeedBack(void)
     //The encoder converts the raw data to wheel speed in m/s
     //编码器原始数据转换为车轮速度，单位m/s
 	#if defined AKM_CAR
+		float t_speed_a;
+		float t_speed_b;
+		float m_speed_a;
+		float m_speed_b;
+		uint32_t now_us;
 	
 		//未完成自检时采集编码器数据进行判断
 		if( robot_check.check_end == 0 )
@@ -1775,15 +1819,22 @@ static void Get_Robot_FeedBack(void)
 			robot_check.check_b += -Encoder_B_pr;
 		}
 		
-		//将两个电机的编码器的原始读数转换为 m/s 
-		//T法: 超时100ms则归零速度 / T-method: zero velocity on 100ms timeout
-		uint32_t now_us = get_us_tick();
-		if ((now_us - last_pulse_update[0]) > 100000u) encoder_T_velocity_raw[0] = 0.0f;
-		if ((now_us - last_pulse_update[1]) > 100000u) encoder_T_velocity_raw[1] = 0.0f;
-		//T法速度已由EXTI ISR计算, 此处除以轮径补偿系数并经Kalman滤波
-		//T-method velocity is computed in EXTI ISR; apply wheel correction and Kalman filter
-		robot.MOTOR_A.Encoder = Kalman_Filter_1D(&Kalman_MotorA, encoder_T_velocity_raw[0] / LeftWheelDiff);
-		robot.MOTOR_B.Encoder = Kalman_Filter_1D(&Kalman_MotorB, encoder_T_velocity_raw[1] / RightWheelDiff);
+		now_us = get_us_tick();
+		if ((last_pulse_update[0] != 0u) && ((now_us - last_pulse_update[0]) > 100000u)) Encoder_T_Method_ResetChannel(0u);
+		if ((last_pulse_update[1] != 0u) && ((now_us - last_pulse_update[1]) > 100000u)) Encoder_T_Method_ResetChannel(1u);
+
+		/* T法与M法统一按当前车型参数换算到 m/s, 再进行左右轮补偿 */
+		t_speed_a = encoder_T_velocity_raw[0] / LeftWheelDiff;
+		t_speed_b = encoder_T_velocity_raw[1] / RightWheelDiff;
+		m_speed_a =   Encoder_A_pr * BALANCE_TASK_RATE / (robot.HardwareParam.Encoder_precision) * robot.HardwareParam.Wheel_Circ / LeftWheelDiff;
+		m_speed_b = - Encoder_B_pr * BALANCE_TASK_RATE / (robot.HardwareParam.Encoder_precision) * robot.HardwareParam.Wheel_Circ / RightWheelDiff;
+
+		akm_encoder_m_raw[0] = m_speed_a;
+		akm_encoder_m_raw[1] = m_speed_b;
+		akm_encoder_feedback_raw[0] = AKM_MixEncoderFeedback(t_speed_a, m_speed_a, robot.MOTOR_A.Encoder);
+		akm_encoder_feedback_raw[1] = AKM_MixEncoderFeedback(t_speed_b, m_speed_b, robot.MOTOR_B.Encoder);
+		robot.MOTOR_A.Encoder = Kalman_Filter_1D(&Kalman_MotorA, akm_encoder_feedback_raw[0]);
+		robot.MOTOR_B.Encoder = Kalman_Filter_1D(&Kalman_MotorB, akm_encoder_feedback_raw[1]);
         //Gets the position of the slide, representing the front wheel rotation Angle
         //获取滑轨位置,代表前轮转角角度.该数值由ADC2负责采集,DMA完成搬运,此处仅需处理数据即可
 		robot.SERVO.Encoder = get_DMA_SlideRes();

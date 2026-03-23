@@ -5,7 +5,7 @@
 /*
  * 调试串口接口 - 通过UART1 DMA发送实时调试数据
  *
- * TX数据帧 (100Hz, 32字节): 编码器原始速度、Kalman滤波速度、目标速度、PID输出
+ * TX数据帧 (100Hz, 40字节): T法原始速度、M法原始速度、融合后速度、目标速度、PID输出
  * TX参数帧 (按需, 40字节): PID参数、速度限制、平滑步进
  * RX命令帧: 设置PID参数、速度限制等
  *
@@ -32,7 +32,7 @@
 #define DEBUG_CMD_QUERY      0x30  /* 查询当前参数 */
 
 /* 帧长度 */
-#define DEBUG_DATA_FRAME_LEN  32  /* TX数据帧总长 */
+#define DEBUG_DATA_FRAME_LEN  40  /* TX数据帧总长 */
 #define DEBUG_PARAM_FRAME_LEN 40  /* TX参数帧总长 */
 #define DEBUG_RX_BUF_LEN      24  /* RX接收缓冲区(最长payload=12B + 开销) */
 

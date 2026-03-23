@@ -168,6 +168,11 @@ short Read_Encoder(ENCODER_t e)
  *=========================================================================*/
 #if defined AKM_CAR
 
+#define T_METHOD_CHANNEL_COUNT   2u
+#define T_METHOD_WINDOW_PULSES   4u
+#define T_METHOD_MIN_DT_US       20u
+#define T_METHOD_MAX_DT_US       500000u
+
 /* TIM6 溢出高16位计数器 — TIM6_DAC_IRQHandler 中自增 */
 static volatile uint32_t tim6_high = 0;
 
@@ -182,6 +187,72 @@ static volatile uint32_t last_pulse_time[2] = {0, 0};
 
 /* 上次脉冲更新时刻, 用于零速超时检测 */
 volatile uint32_t last_pulse_update[2] = {0, 0};
+
+/* T法多脉冲平均窗口状态 */
+static volatile uint8_t  t_window_interval_count[T_METHOD_CHANNEL_COUNT] = {0, 0};
+static volatile uint32_t t_window_start_time[T_METHOD_CHANNEL_COUNT] = {0, 0};
+
+static void Encoder_T_Method_Update(uint8_t index, uint32_t now, float sign)
+{
+    uint32_t dt;
+    uint32_t total_dt;
+
+    if (index >= T_METHOD_CHANNEL_COUNT) return;
+
+    if (last_pulse_time[index] == 0u) {
+        last_pulse_time[index] = now;
+        last_pulse_update[index] = now;
+        return;
+    }
+
+    dt = now - last_pulse_time[index];
+
+    if (dt < T_METHOD_MIN_DT_US) {
+        return;
+    }
+
+    if (dt > T_METHOD_MAX_DT_US) {
+        Encoder_T_Method_ResetChannel(index);
+        last_pulse_time[index] = now;
+        last_pulse_update[index] = now;
+        return;
+    }
+
+    if (t_window_interval_count[index] == 0u) {
+        t_window_start_time[index] = last_pulse_time[index];
+    }
+
+    t_window_interval_count[index]++;
+    last_pulse_time[index] = now;
+    last_pulse_update[index] = now;
+
+    if (t_window_interval_count[index] >= T_METHOD_WINDOW_PULSES) {
+        total_dt = now - t_window_start_time[index];
+        if (total_dt > 0u) {
+            encoder_T_velocity_raw[index] =
+                sign * ((float)T_METHOD_WINDOW_PULSES * 1000000.0f / (float)total_dt) * enc_T_scale_base;
+        }
+        t_window_interval_count[index] = 0u;
+        t_window_start_time[index] = 0u;
+    }
+}
+
+void Encoder_T_Method_ResetChannel(uint8_t index)
+{
+    if (index >= T_METHOD_CHANNEL_COUNT) return;
+
+    encoder_T_velocity_raw[index] = 0.0f;
+    last_pulse_time[index] = 0u;
+    last_pulse_update[index] = 0u;
+    t_window_interval_count[index] = 0u;
+    t_window_start_time[index] = 0u;
+}
+
+void Encoder_T_Method_ResetAll(void)
+{
+    Encoder_T_Method_ResetChannel(0u);
+    Encoder_T_Method_ResetChannel(1u);
+}
 
 
 /**************************************************************************
@@ -302,16 +373,8 @@ void EXTI3_IRQHandler(void)
 {
     if (EXTI_GetITStatus(EXTI_Line3)) {
         uint32_t now = get_us_tick();
-        uint32_t dt  = now - last_pulse_time[0];
-
-        /* 100μs < dt < 500ms 为有效范围 */
-        if (dt > 100u && dt < 500000u) {
-            /* TIM2 DIR bit: 0=计数递增(正转), 1=计数递减(反转) */
-            float sign = ((TIM2->CR1 >> 4) & 1u) ? -1.0f : 1.0f;
-            encoder_T_velocity_raw[0] = sign * (1000000.0f / (float)dt) * enc_T_scale_base;
-        }
-        last_pulse_time[0]   = now;
-        last_pulse_update[0] = now;
+        float sign = ((TIM2->CR1 >> 4) & 1u) ? -1.0f : 1.0f;
+        Encoder_T_Method_Update(0u, now, sign);
         EXTI_ClearITPendingBit(EXTI_Line3);
     }
 }
@@ -327,15 +390,8 @@ void EXTI9_5_IRQHandler(void)
 {
     if (EXTI_GetITStatus(EXTI_Line6)) {
         uint32_t now = get_us_tick();
-        uint32_t dt  = now - last_pulse_time[1];
-
-        if (dt > 100u && dt < 500000u) {
-            /* EncB 方向取反: 与 M 法 -Encoder_B_pr 保持一致 */
-            float sign = ((TIM3->CR1 >> 4) & 1u) ? 1.0f : -1.0f;
-            encoder_T_velocity_raw[1] = sign * (1000000.0f / (float)dt) * enc_T_scale_base;
-        }
-        last_pulse_time[1]   = now;
-        last_pulse_update[1] = now;
+        float sign = ((TIM3->CR1 >> 4) & 1u) ? 1.0f : -1.0f;
+        Encoder_T_Method_Update(1u, now, sign);
         EXTI_ClearITPendingBit(EXTI_Line6);
     }
 }

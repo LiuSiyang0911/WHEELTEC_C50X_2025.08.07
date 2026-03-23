@@ -29,6 +29,8 @@ extern float             enc_T_scale_base;
 
 void     TIM6_FreeRun_Init(void);
 void     Encoder_T_Method_Init(void);
+void     Encoder_T_Method_ResetChannel(uint8_t index);
+void     Encoder_T_Method_ResetAll(void);
 uint32_t get_us_tick(void);
 #endif /* AKM_CAR */
 /*----------------------------------*/

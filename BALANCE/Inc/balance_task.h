@@ -82,6 +82,10 @@ typedef struct{
 extern ROBOT_CONTROL_t robot_control;
 extern ROBOT_SELFCHECK_t robot_check;
 extern AKM_SERVO_UNLOCK_t ServoState;
+#if defined AKM_CAR
+extern float akm_encoder_m_raw[2];
+extern float akm_encoder_feedback_raw[2];
+#endif
 
 //机器人控制方式设置与读取
 enum

@@ -187,6 +187,8 @@ void systemInit(void)
 		//预计算T法速度比例系数: Wheel_Circ / (Encoder_precision / 4)
 		//T-method scale: Wheel_Circ / pulses_per_wheel_rev (single-edge count)
 		enc_T_scale_base = robot.HardwareParam.Wheel_Circ / (robot.HardwareParam.Encoder_precision / 4.0f);
+		//清空T法测速窗口状态,确保运行时参数生效后从干净状态开始累计
+		Encoder_T_Method_ResetAll();
 	#endif
 	
 	//自动回充设备软件参数初始化
