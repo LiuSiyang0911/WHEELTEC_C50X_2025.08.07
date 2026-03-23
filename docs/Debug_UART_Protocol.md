@@ -144,15 +144,20 @@
 ### 接收状态机
 
 ```
-WAIT_HEADER1 → (0xAA) → WAIT_HEADER2 → (0x55) → WAIT_CMD → WAIT_LEN
-    → Length=0: WAIT_CHECKSUM
-    → Length>12: 丢弃,回到WAIT_HEADER1
-    → 其他: WAIT_PAYLOAD → 收齐Length字节 → WAIT_CHECKSUM
-        → 校验通过: 执行命令
-        → 校验失败: 静默丢弃
+WAIT_HEADER1 → (0xAA) → WAIT_HEADER2
+    → (0x55): WAIT_CMD → WAIT_LEN
+        → Length=0: WAIT_CHECKSUM
+        → Length>24: 丢弃,回到WAIT_HEADER1
+        → 其他: WAIT_PAYLOAD → 收齐Length字节 → WAIT_CHECKSUM
+            → 校验通过: 执行命令
+            → 校验失败: 静默丢弃
+    → (0xAA): 留在WAIT_HEADER2 (帧头重评估,避免丢失紧跟的有效帧)
+    → 其他: 回到WAIT_HEADER1
+
+超时: 约50ms (5个Balance_task周期) 无新字节时,自动复位到WAIT_HEADER1
 ```
 
-**最大 Payload 长度：** 12 字节（3 个 float）
+**最大 Payload 长度：** 24 字节（`DEBUG_RX_BUF_LEN`，当前最长命令为 12 字节）
 
 ---
 
@@ -252,10 +257,11 @@ frame[N-1] = checksum
 
 1. **非阻塞发送：** DMA 忙时当前帧被丢弃，不排队缓冲，保证发送的始终是最新数据
 2. **参数不持久化：** 通过命令修改的参数仅运行时有效，断电后恢复为初始值
-3. **PID 命令无范围限制：** 固件不对 Kp/Ki/Kd 做范围校验，上位机需自行确保合理值
+3. **PID 参数校验：** 固件对 Kp/Ki/Kd 做范围校验（`0 ≤ val ≤ 50000`），NaN/Inf 及超出范围的值会被静默拒绝，整条命令丢弃
 4. **参数帧优先：** 有参数回复请求时，该周期会发送参数帧替代数据帧（不会同时发送两帧）
 5. **底盘差异：** 数据帧中 `raw_speed_A/B` 字段仅 AKM 底盘有效，其他底盘类型为 0
-6. **RX Payload 上限：** 最大 12 字节，超出长度的帧会被静默丢弃
+6. **RX Payload 上限：** 最大 24 字节（`DEBUG_RX_BUF_LEN`），超出长度的帧会被静默丢弃
+7. **RX 超时恢复：** 状态机在约 50ms（5 个 Balance_task 周期）内未收到新字节时自动复位，防止卡在半帧状态
 
 ---
 
