@@ -150,6 +150,7 @@ void Balance_task(void *pvParameters)
 			{
 				robot_check.DeepCheck = 0;
 			}
+			Debug_CheckRxTimeout(); //深度自检路径会continue跳过末尾,此处补超时检测
 			continue;
 		}
 		
@@ -175,7 +176,8 @@ void Balance_task(void *pvParameters)
 		}
 		
 		
-		//调试串口: 100Hz发送编码器/PID数据帧(DMA非阻塞)
+		//调试串口: RX超时检测 + 100Hz发送编码器/PID数据帧(DMA非阻塞)
+		Debug_CheckRxTimeout();
 		Debug_SendDataFrame();
 
 		//保存FLash参数,内容包含阿克曼参数、纠偏系数等
@@ -2363,6 +2365,7 @@ static uint8_t Deep_SelfCheck( u16 RATE )
 	if( timecore==1 )
 	{
 		if( data_TaskHandle!=NULL ) vTaskSuspend(data_TaskHandle);//在深度自检程序运行时,挂起数据发送任务(该任务占用串口1),以免资源冲突
+		Debug_WaitTxDone(); //等待DMA发送完成,避免与下方any_printf同步发送冲突
 		any_printf(USART1,"\r\n小车进入深度自检模式,电机的转动顺序为A、B、C、D.请观察转动情况与报错日志.\r\n");
 		Buzzer_AddTask(1,20);//蜂鸣器提示表示已进入深度自检模式
 	}

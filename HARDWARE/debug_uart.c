@@ -32,6 +32,8 @@ static uint8_t rx_len = 0;
 static uint8_t rx_idx = 0;
 static uint8_t rx_buf[DEBUG_RX_BUF_LEN];
 static uint8_t rx_checksum = 0;
+static volatile uint8_t rx_idle_count = 0;
+#define DEBUG_RX_IDLE_THRESHOLD_CYCLES 5  /* 5个Balance_task周期(当前100Hz≈50ms) */
 
 /* ---- 内部函数声明 ---- */
 static void pack_float(uint8_t *buf, float val);
@@ -58,6 +60,15 @@ static float unpack_float(const uint8_t *buf)
 	float val;
 	memcpy(&val, buf, 4);
 	return val;
+}
+
+static int is_valid_pid(float val)
+{
+	/* 1. NaN检查 */
+	if (val != val) return 0;
+	/* 2. 范围检查 (同时拦截 ±Inf) */
+	if (val < 0.0f || val > 50000.0f) return 0;
+	return 1;
 }
 
 /*===========================================================================
@@ -123,6 +134,31 @@ static void dma_start_tx(uint16_t len)
 
 	dma_busy = 1;
 	DMA_Cmd(DMA2_Stream7, ENABLE);
+}
+
+/*===========================================================================
+ * 等待DMA发送完成 (带超时保护)
+ * 用于在同步发送(any_printf)前确保DMA传输已结束,避免USART1数据冲突
+ *===========================================================================*/
+void Debug_WaitTxDone(void)
+{
+	/* 1. 等待DMA传输完成 */
+	volatile uint32_t timeout = 100000;  /* ~10ms@168MHz */
+	while (dma_busy && --timeout > 0);
+
+	if (dma_busy)
+	{
+		/* DMA异常未完成, 强制清理 */
+		DMA_Cmd(DMA2_Stream7, DISABLE);
+		DMA_ClearFlag(DMA2_Stream7, DMA_FLAG_TCIF7 | DMA_FLAG_HTIF7 |
+		              DMA_FLAG_TEIF7 | DMA_FLAG_DMEIF7 | DMA_FLAG_FEIF7);
+		dma_busy = 0;
+	}
+
+	/* 2. 等待USART移位寄存器发空(TC=Transmission Complete, 不仅仅是DR空)
+	 *    即使上面DMA超时被强制关闭, 仍需等TC确保线上最后一个字节发完 */
+	timeout = 100000;
+	while (USART_GetFlagStatus(USART1, USART_FLAG_TC) == RESET && --timeout > 0);
 }
 
 /*===========================================================================
@@ -260,6 +296,8 @@ void Debug_SendParamFrame(void)
  *===========================================================================*/
 void Debug_ProcessRxByte(uint8_t byte)
 {
+	rx_idle_count = 0;  /* 收到字节, 复位空闲计数(volatile, ISR/task共享) */
+
 	switch (rx_state)
 	{
 	case RX_WAIT_HEADER1:
@@ -275,6 +313,12 @@ void Debug_ProcessRxByte(uint8_t byte)
 		{
 			rx_checksum ^= byte;
 			rx_state = RX_WAIT_CMD;
+		}
+		else if (byte == DEBUG_FRAME_HEADER1)
+		{
+			/* 当前字节可能是新帧的第一个帧头,重新开始匹配 */
+			rx_checksum = byte;
+			rx_state = RX_WAIT_HEADER2;
 		}
 		else
 		{
@@ -344,6 +388,8 @@ static void debug_execute_cmd(uint8_t cmd, const uint8_t *payload, uint8_t len)
 			kp = unpack_float(&payload[0]);
 			ki = unpack_float(&payload[4]);
 			kd = unpack_float(&payload[8]);
+			if (!is_valid_pid(kp) || !is_valid_pid(ki) || !is_valid_pid(kd))
+				break;
 			PI_MotorA.kp = kp;  PI_MotorA.ki = ki;  PI_MotorA.kd = kd;
 			PI_MotorB.kp = kp;  PI_MotorB.ki = ki;  PI_MotorB.kd = kd;
 			robot.V_KP = kp;
@@ -354,18 +400,24 @@ static void debug_execute_cmd(uint8_t cmd, const uint8_t *payload, uint8_t len)
 	case DEBUG_CMD_SET_PID_A: /* 设置电机A PID */
 		if (len >= 12)
 		{
-			PI_MotorA.kp = unpack_float(&payload[0]);
-			PI_MotorA.ki = unpack_float(&payload[4]);
-			PI_MotorA.kd = unpack_float(&payload[8]);
+			kp = unpack_float(&payload[0]);
+			ki = unpack_float(&payload[4]);
+			kd = unpack_float(&payload[8]);
+			if (!is_valid_pid(kp) || !is_valid_pid(ki) || !is_valid_pid(kd))
+				break;
+			PI_MotorA.kp = kp;  PI_MotorA.ki = ki;  PI_MotorA.kd = kd;
 		}
 		break;
 
 	case DEBUG_CMD_SET_PID_B: /* 设置电机B PID */
 		if (len >= 12)
 		{
-			PI_MotorB.kp = unpack_float(&payload[0]);
-			PI_MotorB.ki = unpack_float(&payload[4]);
-			PI_MotorB.kd = unpack_float(&payload[8]);
+			kp = unpack_float(&payload[0]);
+			ki = unpack_float(&payload[4]);
+			kd = unpack_float(&payload[8]);
+			if (!is_valid_pid(kp) || !is_valid_pid(ki) || !is_valid_pid(kd))
+				break;
+			PI_MotorB.kp = kp;  PI_MotorB.ki = ki;  PI_MotorB.kd = kd;
 		}
 		break;
 
@@ -402,5 +454,26 @@ static void debug_execute_cmd(uint8_t cmd, const uint8_t *payload, uint8_t len)
 
 	default:
 		break;
+	}
+}
+
+/*===========================================================================
+ * RX超时检测 (从Balance_task 100Hz调用)
+ * 检测状态机是否卡在中间状态,超过阈值则复位
+ *===========================================================================*/
+void Debug_CheckRxTimeout(void)
+{
+	if (rx_state != RX_WAIT_HEADER1)
+	{
+		if (++rx_idle_count > DEBUG_RX_IDLE_THRESHOLD_CYCLES)
+		{
+			/* 复位状态机及所有中间状态, 避免半帧残留 */
+			rx_state = RX_WAIT_HEADER1;
+			rx_cmd = 0;
+			rx_len = 0;
+			rx_idx = 0;
+			rx_checksum = 0;
+			rx_idle_count = 0;
+		}
 	}
 }

@@ -41,5 +41,7 @@ void Debug_UART_DMA_Init(void);
 void Debug_SendDataFrame(void);
 void Debug_SendParamFrame(void);
 void Debug_ProcessRxByte(uint8_t byte);
+void Debug_CheckRxTimeout(void);
+void Debug_WaitTxDone(void);
 
 #endif
