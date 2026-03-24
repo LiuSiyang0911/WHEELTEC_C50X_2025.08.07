@@ -17,24 +17,14 @@ PI_CONTROLLER PI_MotorA,PI_MotorB,PI_MotorC,PI_MotorD,PI_Servo;
 
 //与小车控制相关
 
-// 为左后轮(电机A)定义滤波器
-//Kalman_TypeDef Kalman_MotorA = {
-//    .lastP = 0.01, .Q = 0.005, .R = 0.5, .out = 0
-//};
-
-// 为右后轮(电机B)定义滤波器
-//Kalman_TypeDef Kalman_MotorB = {
-//    .lastP = 0.01, .Q = 0.005, .R = 0.5, .out = 0
-//};
-
-// 为左后轮(电机A)定义滤波器
-Kalman_TypeDef Kalman_MotorA = {
-    .lastP = 0.01, .Q = 5.0e-5f, .R = 2.0e-3f, .out = 0
+// 为左右后轮定义Alpha-Beta滤波器
+// alpha增大时跟随更快, beta增大时对加减速更敏感
+AlphaBeta_Filter_t AB_MotorA = {
+    .alpha = 0.55f, .beta = 0.08f, .dt = 0.01f, .initialized = 0u
 };
 
-// 为右后轮(电机B)定义滤波器
-Kalman_TypeDef Kalman_MotorB = {
-    .lastP = 0.01, .Q = 5.0e-5f, .R = 2.0e-3f, .out = 0
+AlphaBeta_Filter_t AB_MotorB = {
+    .alpha = 0.55f, .beta = 0.08f, .dt = 0.01f, .initialized = 0u
 };
 
 #if defined AKM_CAR
@@ -1777,6 +1767,35 @@ static float AKM_MixEncoderFeedback(float t_speed, float m_speed, float last_fee
 
 	return ((1.0f - alpha) * t_speed) + (alpha * m_speed);
 }
+
+static float AKM_FilterWheelFeedback(AlphaBeta_Filter_t *filter, float mixed_speed, float t_speed, float m_speed)
+{
+	float raw_abs;
+	float filtered_abs;
+	float sign_raw;
+	float sign_filtered;
+
+	raw_abs = fabsf(mixed_speed);
+	filtered_abs = fabsf(filter->x);
+
+	// 静止区直接复位,避免停车后滤波尾巴过长
+	if(raw_abs < 0.01f && fabsf(t_speed) < 0.01f && fabsf(m_speed) < 0.01f)
+	{
+		AlphaBeta_Filter_Reset(filter, 0.0f);
+		return 0.0f;
+	}
+
+	// 换向且原始测速已明显跨零时,复位变化率避免拖尾
+	sign_raw = (mixed_speed > 0.0f) - (mixed_speed < 0.0f);
+	sign_filtered = (filter->x > 0.0f) - (filter->x < 0.0f);
+	if(sign_raw != 0.0f && sign_filtered != 0.0f && sign_raw != sign_filtered && raw_abs > 0.03f && filtered_abs > 0.03f)
+	{
+		AlphaBeta_Filter_Reset(filter, mixed_speed);
+		return mixed_speed;
+	}
+
+	return AlphaBeta_Filter_Update(filter, mixed_speed);
+}
 #endif
 
 static void Get_Robot_FeedBack(void)
@@ -1833,8 +1852,8 @@ static void Get_Robot_FeedBack(void)
 		akm_encoder_m_raw[1] = m_speed_b;
 		akm_encoder_feedback_raw[0] = AKM_MixEncoderFeedback(t_speed_a, m_speed_a, robot.MOTOR_A.Encoder);
 		akm_encoder_feedback_raw[1] = AKM_MixEncoderFeedback(t_speed_b, m_speed_b, robot.MOTOR_B.Encoder);
-		robot.MOTOR_A.Encoder = Kalman_Filter_1D(&Kalman_MotorA, akm_encoder_feedback_raw[0]);
-		robot.MOTOR_B.Encoder = Kalman_Filter_1D(&Kalman_MotorB, akm_encoder_feedback_raw[1]);
+		robot.MOTOR_A.Encoder = AKM_FilterWheelFeedback(&AB_MotorA, akm_encoder_feedback_raw[0], t_speed_a, m_speed_a);
+		robot.MOTOR_B.Encoder = AKM_FilterWheelFeedback(&AB_MotorB, akm_encoder_feedback_raw[1], t_speed_b, m_speed_b);
         //Gets the position of the slide, representing the front wheel rotation Angle
         //获取滑轨位置,代表前轮转角角度.该数值由ADC2负责采集,DMA完成搬运,此处仅需处理数据即可
 		robot.SERVO.Encoder = get_DMA_SlideRes();

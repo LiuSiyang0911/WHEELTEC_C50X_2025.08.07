@@ -25,4 +25,17 @@ typedef struct {
  * @return 滤波后的数据
  */
 float Kalman_Filter_1D(Kalman_TypeDef *k, float input);
+
+// Alpha-Beta滤波结构体定义
+typedef struct {
+    float x;     // 当前估计值
+    float v;     // 当前变化率估计值
+    float alpha; // 测量修正系数
+    float beta;  // 变化率修正系数
+    float dt;    // 采样周期(s)
+    uint8_t initialized;
+} AlphaBeta_Filter_t;
+
+void AlphaBeta_Filter_Reset(AlphaBeta_Filter_t *f, float value);
+float AlphaBeta_Filter_Update(AlphaBeta_Filter_t *f, float input);
 #endif

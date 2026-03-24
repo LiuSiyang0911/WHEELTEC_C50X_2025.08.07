@@ -80,6 +80,33 @@ float Kalman_Filter_1D(Kalman_TypeDef *k, float input)
     return k->out;
 }
 
+void AlphaBeta_Filter_Reset(AlphaBeta_Filter_t *f, float value)
+{
+    f->x = value;
+    f->v = 0.0f;
+    f->initialized = 1u;
+}
+
+float AlphaBeta_Filter_Update(AlphaBeta_Filter_t *f, float input)
+{
+    float x_pred;
+    float residual;
+
+    if (f->initialized == 0u)
+    {
+        AlphaBeta_Filter_Reset(f, input);
+        return f->x;
+    }
+
+    x_pred = f->x + f->v * f->dt;
+    residual = input - x_pred;
+
+    f->x = x_pred + f->alpha * residual;
+    f->v = f->v + (f->beta / f->dt) * residual;
+
+    return f->x;
+}
+
 /**************************************************************************
 函数功能：一阶互补滤波
 入口参数：加速度、角速度
