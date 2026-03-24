@@ -64,7 +64,7 @@ typedef struct{
 	float Bias;    // 与目标值偏差
 	float LastBias;// 上一次的偏差
 	float LastestBias;//上两次的偏差
-	int Output;    // 输出
+	float Output;  // 输出(内部使用浮点累计,避免小量被截断)
 	float kp;      // kp值
 	float ki;      // ki值
 	float kd;      // kd值

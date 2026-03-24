@@ -20,11 +20,11 @@ PI_CONTROLLER PI_MotorA,PI_MotorB,PI_MotorC,PI_MotorD,PI_Servo;
 // 为左右后轮定义Alpha-Beta滤波器
 // alpha增大时跟随更快, beta增大时对加减速更敏感
 AlphaBeta_Filter_t AB_MotorA = {
-    .alpha = 0.55f, .beta = 0.08f, .dt = 0.01f, .initialized = 0u
+    .alpha = 0.18f, .beta = 0.03f, .dt = 0.01f, .initialized = 0u
 };
 
 AlphaBeta_Filter_t AB_MotorB = {
-    .alpha = 0.55f, .beta = 0.08f, .dt = 0.01f, .initialized = 0u
+    .alpha = 0.18f, .beta = 0.03f, .dt = 0.01f, .initialized = 0u
 };
 
 #if defined AKM_CAR
@@ -261,7 +261,7 @@ Author: WHEELTEC
 **************************************************************************/
 static int Incremental_MOTOR(PI_CONTROLLER* p,float current,float target)
 {
-	int Output;
+	float Output;
 	//计算偏差
 	p->Bias = target - current;
 	
@@ -283,7 +283,7 @@ static int Incremental_MOTOR(PI_CONTROLLER* p,float current,float target)
 	
 	
 	//输出
-	return p->Output;
+	return (int)(p->Output);
 }
 
 /**************************************************************************
