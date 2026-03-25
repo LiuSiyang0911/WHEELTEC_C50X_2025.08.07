@@ -27,6 +27,16 @@ AlphaBeta_Filter_t AB_MotorB = {
     .alpha = 0.18f, .beta = 0.03f, .dt = 0.01f, .initialized = 0u
 };
 
+// 一阶LPF截止频率2Hz,采样频率100Hz
+// alpha = dt / (RC + dt), RC = 1 / (2*pi*fc)
+FirstOrder_LPF_t LPF_MotorA = {
+    .alpha = 0.11163521f, .y = 0.0f, .initialized = 0u
+};
+
+FirstOrder_LPF_t LPF_MotorB = {
+    .alpha = 0.11163521f, .y = 0.0f, .initialized = 0u
+};
+
 #if defined AKM_CAR
 #define AKM_BLEND_T_SPEED_LOW      0.12f
 #define AKM_BLEND_M_SPEED_HIGH     0.28f
@@ -1958,33 +1968,37 @@ static float AKM_MixEncoderFeedback(float t_speed, float m_speed, float last_fee
 	return ((1.0f - alpha) * t_speed) + (alpha * m_speed);
 }
 
-static float AKM_FilterWheelFeedback(AlphaBeta_Filter_t *filter, float mixed_speed, float t_speed, float m_speed)
+static float AKM_FilterWheelFeedback(AlphaBeta_Filter_t *ab_filter, FirstOrder_LPF_t *lpf_filter, float mixed_speed, float t_speed, float m_speed)
 {
 	float raw_abs;
+	float ab_filtered;
 	float filtered_abs;
 	float sign_raw;
 	float sign_filtered;
 
 	raw_abs = fabsf(mixed_speed);
-	filtered_abs = fabsf(filter->x);
+	filtered_abs = fabsf(ab_filter->x);
 
 	// 静止区直接复位,避免停车后滤波尾巴过长
 	if(raw_abs < 0.01f && fabsf(t_speed) < 0.01f && fabsf(m_speed) < 0.01f)
 	{
-		AlphaBeta_Filter_Reset(filter, 0.0f);
+		AlphaBeta_Filter_Reset(ab_filter, 0.0f);
+		FirstOrder_LPF_Reset(lpf_filter, 0.0f);
 		return 0.0f;
 	}
 
 	// 换向且原始测速已明显跨零时,复位变化率避免拖尾
 	sign_raw = (mixed_speed > 0.0f) - (mixed_speed < 0.0f);
-	sign_filtered = (filter->x > 0.0f) - (filter->x < 0.0f);
+	sign_filtered = (ab_filter->x > 0.0f) - (ab_filter->x < 0.0f);
 	if(sign_raw != 0.0f && sign_filtered != 0.0f && sign_raw != sign_filtered && raw_abs > 0.03f && filtered_abs > 0.03f)
 	{
-		AlphaBeta_Filter_Reset(filter, mixed_speed);
+		AlphaBeta_Filter_Reset(ab_filter, mixed_speed);
+		FirstOrder_LPF_Reset(lpf_filter, mixed_speed);
 		return mixed_speed;
 	}
 
-	return AlphaBeta_Filter_Update(filter, mixed_speed);
+	ab_filtered = AlphaBeta_Filter_Update(ab_filter, mixed_speed);
+	return FirstOrder_LPF_Update(lpf_filter, ab_filtered);
 }
 #endif
 
@@ -2042,8 +2056,8 @@ static void Get_Robot_FeedBack(void)
 		akm_encoder_m_raw[1] = m_speed_b;
 		akm_encoder_feedback_raw[0] = AKM_MixEncoderFeedback(t_speed_a, m_speed_a, robot.MOTOR_A.Encoder);
 		akm_encoder_feedback_raw[1] = AKM_MixEncoderFeedback(t_speed_b, m_speed_b, robot.MOTOR_B.Encoder);
-		robot.MOTOR_A.Encoder = AKM_FilterWheelFeedback(&AB_MotorA, akm_encoder_feedback_raw[0], t_speed_a, m_speed_a);
-		robot.MOTOR_B.Encoder = AKM_FilterWheelFeedback(&AB_MotorB, akm_encoder_feedback_raw[1], t_speed_b, m_speed_b);
+		robot.MOTOR_A.Encoder = AKM_FilterWheelFeedback(&AB_MotorA, &LPF_MotorA, akm_encoder_feedback_raw[0], t_speed_a, m_speed_a);
+		robot.MOTOR_B.Encoder = AKM_FilterWheelFeedback(&AB_MotorB, &LPF_MotorB, akm_encoder_feedback_raw[1], t_speed_b, m_speed_b);
         //Gets the position of the slide, representing the front wheel rotation Angle
         //获取滑轨位置,代表前轮转角角度.该数值由ADC2负责采集,DMA完成搬运,此处仅需处理数据即可
 		robot.SERVO.Encoder = get_DMA_SlideRes();

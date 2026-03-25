@@ -38,4 +38,14 @@ typedef struct {
 
 void AlphaBeta_Filter_Reset(AlphaBeta_Filter_t *f, float value);
 float AlphaBeta_Filter_Update(AlphaBeta_Filter_t *f, float input);
+
+// 一阶低通滤波结构体定义
+typedef struct {
+    float alpha; // 离散低通系数
+    float y;     // 当前输出
+    uint8_t initialized;
+} FirstOrder_LPF_t;
+
+void FirstOrder_LPF_Reset(FirstOrder_LPF_t *f, float value);
+float FirstOrder_LPF_Update(FirstOrder_LPF_t *f, float input);
 #endif

@@ -107,6 +107,24 @@ float AlphaBeta_Filter_Update(AlphaBeta_Filter_t *f, float input)
     return f->x;
 }
 
+void FirstOrder_LPF_Reset(FirstOrder_LPF_t *f, float value)
+{
+    f->y = value;
+    f->initialized = 1u;
+}
+
+float FirstOrder_LPF_Update(FirstOrder_LPF_t *f, float input)
+{
+    if (f->initialized == 0u)
+    {
+        FirstOrder_LPF_Reset(f, input);
+        return f->y;
+    }
+
+    f->y = f->y + f->alpha * (input - f->y);
+    return f->y;
+}
+
 /**************************************************************************
 函数功能：一阶互补滤波
 入口参数：加速度、角速度
