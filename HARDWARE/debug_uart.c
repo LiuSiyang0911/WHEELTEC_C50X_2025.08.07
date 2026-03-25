@@ -39,6 +39,7 @@ static volatile uint8_t rx_idle_count = 0;
 static void pack_float(uint8_t *buf, float val);
 static void pack_int16(uint8_t *buf, int16_t val);
 static float unpack_float(const uint8_t *buf);
+static int16_t unpack_int16(const uint8_t *buf);
 static void debug_execute_cmd(uint8_t cmd, const uint8_t *payload, uint8_t len);
 static void dma_start_tx(uint16_t len);
 
@@ -62,12 +63,26 @@ static float unpack_float(const uint8_t *buf)
 	return val;
 }
 
+static int16_t unpack_int16(const uint8_t *buf)
+{
+	int16_t val;
+	memcpy(&val, buf, 2);
+	return val;
+}
+
 static int is_valid_pid(float val)
 {
 	/* 1. NaN检查 */
 	if (val != val) return 0;
 	/* 2. 范围检查 (同时拦截 ±Inf) */
 	if (val < 0.0f || val > 50000.0f) return 0;
+	return 1;
+}
+
+static int is_valid_speed(float val)
+{
+	if (val != val) return 0;
+	if (val < 0.0f || val > 10.0f) return 0;
 	return 1;
 }
 
@@ -385,6 +400,8 @@ void Debug_ProcessRxByte(uint8_t byte)
 static void debug_execute_cmd(uint8_t cmd, const uint8_t *payload, uint8_t len)
 {
 	float kp, ki, kd, val;
+	float speed_a, speed_b;
+	int16_t pwm_a, pwm_b;
 
 	switch (cmd)
 	{
@@ -451,6 +468,28 @@ static void debug_execute_cmd(uint8_t cmd, const uint8_t *payload, uint8_t len)
 			val = unpack_float(&payload[0]);
 			if (val > 0 && val <= 1.0f)
 				robot_control.smooth_MotorStep = val;
+		}
+		break;
+
+	case DEBUG_CMD_SET_SPEED_AB: /* 设置A/B两轮目标速度 */
+		if (len >= 8)
+		{
+			speed_a = unpack_float(&payload[0]);
+			speed_b = unpack_float(&payload[4]);
+			if (!is_valid_speed(speed_a) || !is_valid_speed(speed_b))
+				break;
+			Set_UartTargetSpeed(speed_a, speed_b);
+		}
+		break;
+
+	case DEBUG_CMD_SET_PWM_AB: /* 设置A/B两轮目标PWM */
+		if (len >= 4)
+		{
+			pwm_a = unpack_int16(&payload[0]);
+			pwm_b = unpack_int16(&payload[2]);
+			if (pwm_a < 0 || pwm_a > FULL_DUTYCYCLE || pwm_b < 0 || pwm_b > FULL_DUTYCYCLE)
+				break;
+			Set_UartTargetPwm(pwm_a, pwm_b);
 		}
 		break;
 

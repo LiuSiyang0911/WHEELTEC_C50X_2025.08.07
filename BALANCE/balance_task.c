@@ -286,6 +286,70 @@ static int Incremental_MOTOR(PI_CONTROLLER* p,float current,float target)
 	return (int)(p->Output);
 }
 
+static void UartTarget_ClearMotionState(void)
+{
+	robot_control.Vx = 0;
+	robot_control.Vy = 0;
+	robot_control.Vz = 0;
+	robot_control.smooth_Vx = 0;
+	robot_control.smooth_Vy = 0;
+	robot_control.smooth_Vz = 0;
+	robot.MOTOR_A.Target = 0;
+	robot.MOTOR_B.Target = 0;
+	robot.MOTOR_C.Target = 0;
+	robot.MOTOR_D.Target = 0;
+	robot.MOTOR_A.Output = 0;
+	robot.MOTOR_B.Output = 0;
+	robot.MOTOR_C.Output = 0;
+	robot.MOTOR_D.Output = 0;
+}
+
+void Set_UartTargetSpeed(float speed_a,float speed_b)
+{
+	if( speed_a < 0 ) speed_a = -speed_a;
+	if( speed_b < 0 ) speed_b = -speed_b;
+
+	speed_a = target_limit_float(speed_a,0,robot_control.limt_max_speed);
+	speed_b = target_limit_float(speed_b,0,robot_control.limt_max_speed);
+
+	if( robot_control.uart_target_mode != UART_TARGET_MODE_SPEED )
+	{
+		UartTarget_ClearMotionState();
+		PI_Controller_Reset(&PI_MotorA);
+		PI_Controller_Reset(&PI_MotorB);
+	}
+
+	robot_control.uart_target_mode = UART_TARGET_MODE_SPEED;
+	robot_control.uart_target_valid = 1;
+	robot_control.uart_speed_a = speed_a;
+	robot_control.uart_speed_b = speed_b;
+	robot_control.uart_pwm_a = 0;
+	robot_control.uart_pwm_b = 0;
+}
+
+void Set_UartTargetPwm(int16_t pwm_a,int16_t pwm_b)
+{
+	if( pwm_a < 0 ) pwm_a = -pwm_a;
+	if( pwm_b < 0 ) pwm_b = -pwm_b;
+
+	pwm_a = target_limit_int(pwm_a,0,FULL_DUTYCYCLE);
+	pwm_b = target_limit_int(pwm_b,0,FULL_DUTYCYCLE);
+
+	if( robot_control.uart_target_mode != UART_TARGET_MODE_PWM )
+	{
+		UartTarget_ClearMotionState();
+		PI_Controller_Reset(&PI_MotorA);
+		PI_Controller_Reset(&PI_MotorB);
+	}
+
+	robot_control.uart_target_mode = UART_TARGET_MODE_PWM;
+	robot_control.uart_target_valid = 1;
+	robot_control.uart_speed_a = 0;
+	robot_control.uart_speed_b = 0;
+	robot_control.uart_pwm_a = pwm_a;
+	robot_control.uart_pwm_b = pwm_b;
+}
+
 /**************************************************************************
 Functionality: Incremental PI Control - Implements the control logic for an 
                incremental PI (Proportional-Integral) controller using feedback and target values.
@@ -980,6 +1044,11 @@ Author: WHEELTEC
 static void ResponseControl(void)
 {
 	#if defined AKM_CAR
+	if( robot_control.uart_target_mode == UART_TARGET_MODE_PWM && robot_control.uart_target_valid )
+	{
+		Apply_AKM_UartPwmOutput(robot.MOTOR_A.Output,robot.MOTOR_B.Output);
+		return;
+	}
 //增量式PI控制器
 //    //得到控制目标值，进行运动学分析
 //与小车控制相关
@@ -1066,6 +1135,7 @@ static void UnResponseControl(uint8_t mode)
 	//解轴失能
 	if(mode==UN_LOCK)
 	{
+		UartTarget_ClearMotionState();
 		//复位PI控制器,消除积累
 		PI_Controller_Reset(&PI_MotorA);
 		PI_Controller_Reset(&PI_MotorB);
@@ -1079,9 +1149,18 @@ static void UnResponseControl(uint8_t mode)
 	//锁轴失能,无法推动小车
 	else if( mode==LOCK )
 	{
-		Drive_Motor(0,0,0);
-		ResponseControl();
+		UartTarget_ClearMotionState();
+		Set_Pwm( 0 , 0 , 0 , 0 , 0 );
 	}
+}
+
+static void Apply_AKM_UartPwmOutput(int pwm_a,int pwm_b)
+{
+	      if( robot.type == 6 )                      Set_Pwm(0,0,0,0,0);
+	else if ( robot.type <= 1 || robot.type == 9)   Set_Pwm( pwm_a , pwm_b , 0 , 0 ,robot.SERVO.Output );
+	else if ( robot.type >= 2 && robot.type <= 5 )  Set_Pwm(-pwm_a ,-pwm_b , 0 , 0 ,robot.SERVO.Output );
+	else if ( robot.type == 7 )                     Set_Pwm( 0 , 0 , 0 , 0 , robot.SERVO.Output );
+	else if ( robot.type == 8 )                     Set_Pwm( 0 , 0 , 0 , 0 , 1500 );
 }
 
 /**************************************************************************
@@ -1225,6 +1304,13 @@ static void Get_APPcmd(void)
 	
 	//非全向移动小车
 	#if defined AKM_CAR || defined DIFF_CAR || defined _4WD_CAR
+		#if defined AKM_CAR
+		if( robot_control.uart_target_valid && robot_control.uart_target_mode != UART_TARGET_MODE_NONE )
+		{
+			Apply_AKM_UartTargetFromApp();
+			return;
+		}
+		#endif
 	
 		#if defined AKM_CAR
 			m_sign = -1;                  //阿克曼Vz表示前轮转角,部分方向符号需要修改.
@@ -1281,6 +1367,110 @@ static void Get_APPcmd(void)
     //Control target value is obtained and kinematics analysis is performed
     //得到控制目标值，进行运动学分析
     Drive_Motor(robot_control.Vx,robot_control.Vy,robot_control.Vz);
+}
+
+static void Apply_AKM_UartTargetFromApp(void)
+{
+	float target_a = 0;
+	float target_b = 0;
+	int output_a = 0;
+	int output_b = 0;
+	uint8_t turn_flag = appkey.TurnFlag;
+
+	UartTarget_ClearMotionState();
+
+	if( robot_control.uart_target_mode == UART_TARGET_MODE_SPEED )
+	{
+		switch( appkey.DirectionFlag )
+		{
+			case 1:
+			case 2:
+				target_a = robot_control.uart_speed_a;
+				target_b = robot_control.uart_speed_b;
+				break;
+			case 3:
+				target_a = robot_control.uart_speed_a;
+				target_b =-robot_control.uart_speed_b;
+				break;
+			case 4:
+			case 5:
+				target_a =-robot_control.uart_speed_a;
+				target_b =-robot_control.uart_speed_b;
+				break;
+			case 6:
+				target_a =-robot_control.uart_speed_b;
+				target_b =-robot_control.uart_speed_a;
+				break;
+			case 7:
+				target_a =-robot_control.uart_speed_a;
+				target_b = robot_control.uart_speed_b;
+				break;
+			case 8:
+				target_a = robot_control.uart_speed_b;
+				target_b = robot_control.uart_speed_a;
+				break;
+			default:
+				break;
+		}
+
+		if( appkey.DirectionFlag == 0 )
+		{
+			if( turn_flag == 1 )
+			{
+				target_a =-robot_control.uart_speed_a;
+				target_b = robot_control.uart_speed_b;
+			}
+			else if( turn_flag == 2 )
+			{
+				target_a = robot_control.uart_speed_a;
+				target_b =-robot_control.uart_speed_b;
+			}
+		}
+
+		robot.MOTOR_A.Target = target_a;
+		robot.MOTOR_B.Target = target_b;
+	}
+	else if( robot_control.uart_target_mode == UART_TARGET_MODE_PWM )
+	{
+		switch( appkey.DirectionFlag )
+		{
+			case 1:
+			case 2:
+				output_a = robot_control.uart_pwm_a;
+				output_b = robot_control.uart_pwm_b;
+				break;
+			case 4:
+			case 5:
+				output_a =-robot_control.uart_pwm_a;
+				output_b =-robot_control.uart_pwm_b;
+				break;
+			case 6:
+				output_a =-robot_control.uart_pwm_b;
+				output_b =-robot_control.uart_pwm_a;
+				break;
+			case 8:
+				output_a = robot_control.uart_pwm_b;
+				output_b = robot_control.uart_pwm_a;
+				break;
+			case 3:
+			case 7:
+			default:
+				output_a = 0;
+				output_b = 0;
+				break;
+		}
+
+		if( appkey.DirectionFlag == 0 && (turn_flag == 1 || turn_flag == 2) )
+		{
+			output_a = 0;
+			output_b = 0;
+		}
+
+		robot.MOTOR_A.Target = (float)output_a;
+		robot.MOTOR_B.Target = (float)output_b;
+		robot.MOTOR_A.Output = output_a;
+		robot.MOTOR_B.Output = output_b;
+	}
 }
 
 /**************************************************************************
@@ -2372,6 +2562,12 @@ void ROBOT_CONTROL_t_Init(ROBOT_CONTROL_t* p)
 	
 	//纠偏系数
 	p->LineDiffParam = 50;
+	p->uart_target_mode = UART_TARGET_MODE_NONE;
+	p->uart_target_valid = 0;
+	p->uart_speed_a = 0;
+	p->uart_speed_b = 0;
+	p->uart_pwm_a = 0;
+	p->uart_pwm_b = 0;
 }
 
 //自检变量初始化

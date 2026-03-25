@@ -29,6 +29,8 @@
 #define DEBUG_CMD_SET_RCSPD  0x20  /* 设置rc_speed */
 #define DEBUG_CMD_SET_MAXSPD 0x21  /* 设置limt_max_speed */
 #define DEBUG_CMD_SET_SMOOTH 0x22  /* 设置smooth_MotorStep */
+#define DEBUG_CMD_SET_SPEED_AB 0x23  /* 设置A/B两轮目标速度 */
+#define DEBUG_CMD_SET_PWM_AB   0x24  /* 设置A/B两轮目标PWM */
 #define DEBUG_CMD_QUERY      0x30  /* 查询当前参数 */
 
 /* 帧长度 */

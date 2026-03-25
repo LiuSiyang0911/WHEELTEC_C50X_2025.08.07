@@ -9,6 +9,13 @@
 #define BALANCE_STK_SIZE 		512           //Task stack size //任务堆栈大小
 #define BALANCE_TASK_RATE       RATE_100_HZ   //任务频率
 
+//USART1目标控制模式
+enum{
+	UART_TARGET_MODE_NONE  = 0,
+	UART_TARGET_MODE_SPEED = 1,
+	UART_TARGET_MODE_PWM   = 2
+};
+
 //机器人控制相关参数
 typedef struct{
 	u8 ControlMode;       //机器人控制模式_(变量说明:非用户直接操作变量,请勿进行直接赋值操作,仅可读)
@@ -31,6 +38,12 @@ typedef struct{
 	float rc_speed;      //机器人遥控速度基准,默认500 mm/s
 	float limt_max_speed;//机器人最大允许的速度限制.单位m/s,标准车型默认设置3.5 m/s，实际上标准机器人达不到这个速度.
 	uint32_t LineDiffParam;//纠偏系数，0-100可调整
+	u8 uart_target_mode;   //USART1目标控制模式
+	u8 uart_target_valid;  //USART1目标控制数据有效标志
+	float uart_speed_a;    //USART1下发的A轮目标速度
+	float uart_speed_b;    //USART1下发的B轮目标速度
+	int16_t uart_pwm_a;    //USART1下发的A轮目标PWM
+	int16_t uart_pwm_b;    //USART1下发的B轮目标PWM
 
 }ROBOT_CONTROL_t;
 
@@ -113,6 +126,8 @@ void Balance_task(void *pvParameters); //任务声明
 void PI_Controller_Init(PI_CONTROLLER* p,float kp,float ki); //软件初始化函数
 void ROBOT_CONTROL_t_Init(ROBOT_CONTROL_t* p);
 void  Set_Robot_PI_Param(float kp,float ki,float kd); //PI控制器设置参数
+void Set_UartTargetSpeed(float speed_a,float speed_b);
+void Set_UartTargetPwm(int16_t pwm_a,int16_t pwm_b);
 float rad_to_angle(const float rad);  //角度与弧度互转
 float angle_to_rad(const float angle);//角度与弧度互转
 float Akm_Vz_to_Angle(float Vx,float Vz);//将阿克曼的目标速度转换为左前轮转角
@@ -138,6 +153,9 @@ static void InverseKinematics_omni(float Vx,float Vy,float Vz);
 static void Drive_Motor(float T_Vx,float T_Vy,float T_Vz); //控制类
 static void ResponseControl(void);
 static void UnResponseControl(uint8_t mode);
+static void UartTarget_ClearMotionState(void);
+static void Apply_AKM_UartTargetFromApp(void);
+static void Apply_AKM_UartPwmOutput(int pwm_a,int pwm_b);
 static void Set_Pwm(int m_a,int m_b,int m_c,int m_d,int servo);
 static u8 Turn_Off(void);
 static void Get_APPcmd(void);

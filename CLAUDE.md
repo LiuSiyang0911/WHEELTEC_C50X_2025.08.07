@@ -109,7 +109,8 @@ All hardware-specific code must check `SysVal.HardWare_Ver`.
 
 **`BALANCE/Inc/balance_task.h`:**
 - `ROBOT_CONTROL_t` — Target velocities (Vx, Vy, Vz), active control mode, smoothing parameters
-- `PI_CONTROLLER` — Incremental PI regulator: `Bias`, `LastBias`, `kp`, `ki`, `Output`
+- `PI_CONTROLLER` — Incremental PI regulator: `Bias`, `LastBias`, `kp`, `ki`, `Output` (float, truncated to int on output)
+- `AlphaBeta_Filter_t` — Alpha-Beta predictor-corrector filter: position estimate `x`, velocity estimate `v`, tuning params `alpha`/`beta`/`dt`
 - `SEND_DATA` — 24-byte telemetry frame (header 0x7B, footer 0x7D, BCC checksum)
 - `AKM_SERVO_UNLOCK_t` — Ackermann servo non-self-locking detection (top-tier only)
 - `ROBOT_SELFCHECK_t` — Self-check error flags and encoder feedback verification
@@ -119,9 +120,9 @@ All hardware-specific code must check `SysVal.HardWare_Ver`.
 Incremental PI formula (in `balance_task.c`):
 ```
 ΔOutput = Kp × (Bias − LastBias) + Ki × Bias
-Output += ΔOutput
+Output += ΔOutput          (float accumulation, cast to int on return)
 ```
-Where `Bias = Target − Encoder_feedback`. Default gains: `VEL_KP=300, VEL_KI=300` (overridable per variant). One `PI_CONTROLLER` instance per motor (`PI_MotorA` through `PI_MotorD`) plus `PI_Servo` for AKM.
+Where `Bias = Target − Encoder_feedback`. `Output` is `float` internally to preserve small increments at low speed; truncated to `int` only when applied to PWM. Default gains: `VEL_KP=300, VEL_KI=300` (overridable per variant). One `PI_CONTROLLER` instance per motor (`PI_MotorA` through `PI_MotorD`) plus `PI_Servo` for AKM.
 
 ### Safety Features
 
@@ -161,6 +162,7 @@ Unlike other chassis types:
 - **ADC2**: Initialized only for AKM — reads servo potentiometer feedback
 - **Steering**: UART Vz (angular velocity) is converted to steering angle via `Akm_Vz_to_Angle()` before kinematics
 - **Inverse kinematics**: `InverseKinematics_akm(Vx, Vz)` → differential wheel speeds + servo angle (polynomial-fitted PWM mapping)
+- **Speed feedback pipeline**: T-method + M-method encoder fusion (`AKM_MixEncoderFeedback`) → Alpha-Beta filter with static-zone and reversal reset (`AKM_FilterWheelFeedback`). Filter instances `AB_MotorA`/`AB_MotorB` (alpha=0.18, beta=0.03, dt=0.01s) in `balance_task.c`
 - **Servo non-self-locking**: `Servo_UnLock_Check` / `AKM_SERVO_UNLOCK_t` for top-tier models
 
 Other chassis types (DIFF, MEC, 4WD, OMNI) use quadrature encoders via `Read_Encoder()` (TIM2/3/4/5) and have their own `InverseKinematics_*()` and `Kinematics_*()` functions.
