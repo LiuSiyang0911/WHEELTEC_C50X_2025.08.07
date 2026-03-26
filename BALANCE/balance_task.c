@@ -2,6 +2,7 @@
 #include "filter.h"
 #include "debug_uart.h"
 #include <string.h>
+#include <math.h>
 
 //与小车控制相关
 ROBOT_CONTROL_t robot_control;
@@ -34,6 +35,28 @@ AlphaBeta_Filter_t AB_MotorB = {
 #define AKM_FEEDBACK_ZERO_EPS      0.001f
 float akm_encoder_m_raw[2] = {0.0f, 0.0f};
 float akm_encoder_feedback_raw[2] = {0.0f, 0.0f};
+
+// ===== 重复控制（Repetitive Control）=====
+// 原理：轮子偏心引起严格周期性扰动，记录上一圈各位置补偿量，下一圈同位置前馈叠加
+// 轮周长由运行时 robot.HardwareParam.Wheel_Circ 读取（各车型精确值不同，无需硬编码）
+// 经3~5个轮子周期学习后，速度std预期从±0.035m/s收敛至±0.010m/s以内
+#define RC_BUF_MAX    300        // 最大缓冲帧数（帧）；超出则本帧放弃前馈（速度过低时）
+#define RC_GAIN       0.3f       // 学习增益（初始0.3；振荡则降低；勿超0.8）
+#define RC_DT         0.01f      // 控制周期（秒），与Balance_task一致
+#define RC_MIN_SPEED  0.05f      // 低于此速度暂停学习和前馈（m/s），防止停车残留
+#define RC_MIN_N      20         // 缓冲区最小有效帧数
+#define RC_Q_FILTER   0.98f      // 遗忘因子（Q-Filter），防止高频噪声无限累加发散
+#define RC_PWM_SCALE  1000.0f    // 速度误差(m/s)映射到PWM量级的比例系数
+
+typedef struct {
+    float  buf[RC_BUF_MAX];     // 各位置补偿量历史（PWM量级）
+    int    N;                    // 当前有效缓冲区长度（随速度动态计算）
+    int    idx;                  // 当前环形写入位置
+    int    prev_N;               // 上一帧的N，用于检测速度突变
+} RepeatCtrl_t;
+
+static RepeatCtrl_t rc_motorA = {0};   // Motor_A（左后轮）重复控制实例
+static RepeatCtrl_t rc_motorB = {0};   // Motor_B（右后轮）重复控制实例
 #endif
 
 #if defined AKM_CAR
@@ -285,6 +308,78 @@ static int Incremental_MOTOR(PI_CONTROLLER* p,float current,float target)
 	//输出
 	return (int)(p->Output);
 }
+
+#if defined AKM_CAR
+/**************************************************************************
+Function: Repetitive control update - called once per wheel per control cycle.
+          Suppresses periodic disturbance from wheel eccentricity via feedforward.
+Input   : rc         - RepeatCtrl_t instance for this wheel
+          wheel_circ - wheel circumference in meters (from robot.HardwareParam.Wheel_Circ)
+          speed      - measured wheel speed with sign (m/s)
+          target     - target wheel speed with sign (m/s)
+          pi_out     - accumulated incremental-PI output (float, already clamped)
+Output  : PI output + repetitive control feedforward (float, caller must re-clamp)
+函数功能：重复控制更新，每帧每轮调用一次，前馈补偿轮子偏心引起的周期性扰动。
+          轮周长参数由调用方传入（robot.HardwareParam.Wheel_Circ），适配所有AKM车型。
+注意：返回值叠加了前馈量，调用方必须在使用前再次对总输出做±FULL_DUTYCYCLE限幅。
+RC_GAIN调参：
+  1. 初始值0.3，观察3~5s后速度std是否下降
+  2. 若收敛慢(>10s)，提高到0.5；若出现高频振荡，降回0.3或更低
+  3. 最终值不超过0.8（理论临界值1.0，需留余量）
+**************************************************************************/
+static float RepeatCtrl_Update(RepeatCtrl_t *rc, float wheel_circ, float speed, float target, float pi_out)
+{
+    float period_s, rc_feedforward, speed_error;
+    int N_new;
+
+    /* [修正2] 速度过低时仅暂停，不清空缓冲（清空由外部Target<0.01时执行）
+       防止起步阶段历史数据被反复清空，永远无法应用前馈 */
+    if (fabsf(speed) < RC_MIN_SPEED || fabsf(target) < RC_MIN_SPEED) {
+        return pi_out;
+    }
+
+    /* 根据当前速度和实际轮周长动态计算缓冲区长度（轮子转一圈的帧数）*/
+    period_s = wheel_circ / fabsf(speed);
+    N_new = (int)(period_s / RC_DT + 0.5f);  /* 四舍五入 */
+    if (N_new < RC_MIN_N) N_new = RC_MIN_N;
+
+    /* [修正3] 周期过长超出缓冲池容量时，放弃本帧前馈，而非截断造成相位错乱 */
+    if (N_new > RC_BUF_MAX) {
+        return pi_out;
+    }
+
+    /* 速度突变导致N变化超过5帧时，重置缓冲区（避免相位错位的补偿）*/
+    if (rc->prev_N > 0 && (N_new - rc->prev_N > 5 || rc->prev_N - N_new > 5)) {
+        memset(rc->buf, 0, sizeof(rc->buf));
+        rc->idx = 0;
+    }
+    rc->N      = N_new;
+    rc->prev_N = N_new;
+
+    /* [修正1] 防数组越界：N更新后idx可能超出新边界，立即修正 */
+    if (rc->idx >= rc->N) {
+        rc->idx = 0;
+    }
+
+    /* 读取上一圈同位置的补偿量作为前馈 */
+    rc_feedforward = rc->buf[rc->idx];
+
+    /* [修正4+5] Q-Filter学习更新：衰减旧值防高频噪声累积，叠加本帧误差（RC_PWM_SCALE替代魔法数）*/
+    speed_error = target - speed;
+    rc->buf[rc->idx] = RC_Q_FILTER * rc->buf[rc->idx]
+                     + RC_GAIN * speed_error * RC_PWM_SCALE;
+
+    /* 缓冲区限幅，防止饱和（单次前馈不超过PWM范围约9%）*/
+    if (rc->buf[rc->idx] >  1500.0f) rc->buf[rc->idx] =  1500.0f;
+    if (rc->buf[rc->idx] < -1500.0f) rc->buf[rc->idx] = -1500.0f;
+
+    /* 环形索引递增 */
+    rc->idx = (rc->idx + 1) % rc->N;
+
+    /* 返回PI输出 + 重复控制前馈（调用方须再次做总输出限幅）*/
+    return pi_out + rc_feedforward;
+}
+#endif /* AKM_CAR */
 
 static void UartTarget_ClearMotionState(void)
 {
@@ -1053,11 +1148,36 @@ static void ResponseControl(void)
 //    //得到控制目标值，进行运动学分析
 //与小车控制相关
 	//根据滑轨的行程、不同的车型 来确定PI参数
-	if(fabsf(robot.MOTOR_A.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorA); robot.MOTOR_A.Output = 0;}
-	else robot.MOTOR_A.Output = Incremental_MOTOR( &PI_MotorA , robot.MOTOR_A.Encoder , robot.MOTOR_A.Target );
+	if(fabsf(robot.MOTOR_A.Target) < 0.01f) {
+		PI_Controller_Reset(&PI_MotorA);
+		robot.MOTOR_A.Output = 0;
+		/* [修正2] 停止时统一清空缓冲区（RepeatCtrl_Update内部绝不清空）*/
+		memset(rc_motorA.buf, 0, sizeof(rc_motorA.buf));
+		rc_motorA.idx = 0; rc_motorA.N = 0; rc_motorA.prev_N = 0;
+	} else {
+		float pi_out_A = (float)Incremental_MOTOR(&PI_MotorA, robot.MOTOR_A.Encoder, robot.MOTOR_A.Target);
+		float total_A  = RepeatCtrl_Update(&rc_motorA, robot.HardwareParam.Wheel_Circ,
+		                                   robot.MOTOR_A.Encoder, robot.MOTOR_A.Target, pi_out_A);
+		/* 叠加前馈后须再次限幅 */
+		if (total_A >  FULL_DUTYCYCLE) total_A =  FULL_DUTYCYCLE;
+		if (total_A < -FULL_DUTYCYCLE) total_A = -FULL_DUTYCYCLE;
+		robot.MOTOR_A.Output = (int)total_A;
+	}
 
-	if(fabsf(robot.MOTOR_B.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorB); robot.MOTOR_B.Output = 0;}
-	else robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
+	if(fabsf(robot.MOTOR_B.Target) < 0.01f) {
+		PI_Controller_Reset(&PI_MotorB);
+		robot.MOTOR_B.Output = 0;
+		/* [修正2] 停止时统一清空缓冲区 */
+		memset(rc_motorB.buf, 0, sizeof(rc_motorB.buf));
+		rc_motorB.idx = 0; rc_motorB.N = 0; rc_motorB.prev_N = 0;
+	} else {
+		float pi_out_B = (float)Incremental_MOTOR(&PI_MotorB, robot.MOTOR_B.Encoder, robot.MOTOR_B.Target);
+		float total_B  = RepeatCtrl_Update(&rc_motorB, robot.HardwareParam.Wheel_Circ,
+		                                   robot.MOTOR_B.Encoder, robot.MOTOR_B.Target, pi_out_B);
+		if (total_B >  FULL_DUTYCYCLE) total_B =  FULL_DUTYCYCLE;
+		if (total_B < -FULL_DUTYCYCLE) total_B = -FULL_DUTYCYCLE;
+		robot.MOTOR_B.Output = (int)total_B;
+	}
 	
 	//The servo of the top of the line Ackermann model only requires PI control. \
 	The high-end model does not come with steering rail feedback
