@@ -22,6 +22,7 @@ typedef struct{
 	u8 FlagStop;          //机器人是否使能标志位,1代表机器人失能,0代表使能_(变量说明:非用户直接操作变量,请勿进行直接赋值操作,仅可读)
 	u8 command_lostcount; //机器人丢失控制命令计数,丢失命令到达一定时间可停止机器人的自运动
 	u8 SoftWare_Stop;     //机器人软件急停,设置1急停,0使能. 仅为预留功能,若需要使用时，设置该值为1即可
+	u8 speed_ctrl_mode;   //速度环控制模式，默认AKM使用LADRC
 	float Vx;            //机器人x轴目标速度
 	float Vy;            //机器人y轴目标速度
 	float Vz;            //机器人z轴目标速度
@@ -83,6 +84,33 @@ typedef struct{
 	float kd;      // kd值
 }PI_CONTROLLER;
 
+typedef enum{
+	SPEED_CTRL_MODE_PI = 0,
+	SPEED_CTRL_MODE_LADRC = 1
+}SPEED_CTRL_MODE_t;
+
+#define AKM_LADRC_B0_DEFAULT      0.00080f
+#define AKM_LADRC_WC_DEFAULT      18.0f
+#define AKM_LADRC_WO_DEFAULT      54.0f
+#define AKM_LADRC_KFF_DEFAULT     7000.0f
+#define AKM_LADRC_UDEAD_DEFAULT   900.0f
+
+typedef struct{
+	float b0;          //控制增益估计
+	float wc;          //闭环带宽
+	float wo;          //ESO带宽
+	float beta1;       //ESO增益1
+	float beta2;       //ESO增益2
+	float kff;         //速度前馈系数，对应PWM/m/s
+	float u_deadzone;  //静摩擦补偿PWM
+	float z1;          //ESO状态: 速度估计
+	float z2;          //ESO状态: 总扰动估计
+	float u_prev;      //上一拍控制输出
+	float u_ff_last;   //上一拍前馈输出，供调试查看
+	float dt;          //控制周期
+	float out_limit;   //输出限幅
+}LADRC_CONTROLLER_t;
+
 //顶配阿克曼专用变量,用于舵机非自锁功能的实现
 typedef struct{
 	uint8_t UnLock;      //舵机非自锁模式标志位
@@ -98,6 +126,7 @@ extern AKM_SERVO_UNLOCK_t ServoState;
 #if defined AKM_CAR
 extern float akm_encoder_m_raw[2];
 extern float akm_encoder_feedback_raw[2];
+extern uint8_t akm_feedback_source[2];
 #endif
 
 //机器人控制方式设置与读取
@@ -119,13 +148,19 @@ enum
 extern SYS_VAL_t SysVal;
 extern ROBOT_CONTROL_t robot_control;
 extern PI_CONTROLLER PI_MotorA,PI_MotorB,PI_MotorC,PI_MotorD,PI_Servo;
+extern LADRC_CONTROLLER_t LADRC_MotorA,LADRC_MotorB;
 
 //对外函数
 void Balance_task(void *pvParameters); //任务声明
 //void Akm_ReadServo_Param(void);//从Flash读取阿克曼舵机的信息
 void PI_Controller_Init(PI_CONTROLLER* p,float kp,float ki); //软件初始化函数
+void SpeedCtrl_Init(LADRC_CONTROLLER_t *p,float b0,float wc,float wo,float kff,float u_deadzone);
+void SpeedCtrl_Reset(LADRC_CONTROLLER_t *p);
+int  SpeedCtrl_Compute(LADRC_CONTROLLER_t *p,float target,float meas);
 void ROBOT_CONTROL_t_Init(ROBOT_CONTROL_t* p);
 void  Set_Robot_PI_Param(float kp,float ki,float kd); //PI控制器设置参数
+void  Set_Robot_LADRC_Param(float b0,float wc,float wo,float kff,float u_deadzone);
+void  Set_Robot_SpeedCtrlMode(uint8_t mode);
 void Set_UartTargetSpeed(float speed_a,float speed_b);
 void Set_UartTargetPwm(int16_t pwm_a,int16_t pwm_b);
 float rad_to_angle(const float rad);  //角度与弧度互转
@@ -140,6 +175,7 @@ static void ROBOT_SELFCHECK_t_Init(ROBOT_SELFCHECK_t* p); //初始化类
 
 static void PI_Controller_Reset(PI_CONTROLLER *p); //PI控制类
 static void PI_SetParam(PI_CONTROLLER* p,float kp,float ki,float kd);
+static void SpeedCtrl_UpdateBeta(LADRC_CONTROLLER_t *p);
 static int Incremental_MOTOR(PI_CONTROLLER* p,float current,float target);
 static int Incremental_Servo(PI_CONTROLLER* p,float current,float target);
 static uint8_t PI_Clear_Output(PI_CONTROLLER* p);

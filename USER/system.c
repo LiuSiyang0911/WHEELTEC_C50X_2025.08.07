@@ -176,6 +176,11 @@ void systemInit(void)
 	PI_Controller_Init(&PI_MotorB,robot.V_KP,robot.V_KI);
 	PI_Controller_Init(&PI_MotorC,robot.V_KP,robot.V_KI);
 	PI_Controller_Init(&PI_MotorD,robot.V_KP,robot.V_KI);
+	#if defined AKM_CAR
+		SpeedCtrl_Init(&LADRC_MotorA,AKM_LADRC_B0_DEFAULT,AKM_LADRC_WC_DEFAULT,AKM_LADRC_WO_DEFAULT,AKM_LADRC_KFF_DEFAULT,AKM_LADRC_UDEAD_DEFAULT);
+		SpeedCtrl_Init(&LADRC_MotorB,AKM_LADRC_B0_DEFAULT,AKM_LADRC_WC_DEFAULT,AKM_LADRC_WO_DEFAULT,AKM_LADRC_KFF_DEFAULT,AKM_LADRC_UDEAD_DEFAULT);
+		Set_Robot_SpeedCtrlMode(SPEED_CTRL_MODE_LADRC);
+	#endif
 
 	//T法编码器初始化 (仅AKM_CAR): TIM6自由运行计数器 + EXTI边沿检测
 	//T-method encoder init (AKM_CAR only): TIM6 free-run counter + EXTI edge detect

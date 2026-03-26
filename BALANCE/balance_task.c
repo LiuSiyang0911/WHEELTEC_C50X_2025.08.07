@@ -14,8 +14,10 @@ static ROBOT_PARKING_t park;
 
 //增量式PI控制器
 PI_CONTROLLER PI_MotorA,PI_MotorB,PI_MotorC,PI_MotorD,PI_Servo;
+LADRC_CONTROLLER_t LADRC_MotorA,LADRC_MotorB;
 
 //与小车控制相关
+#define SPEED_CTRL_STOP_RESET_EPS      0.02f
 
 // 为左右后轮定义Alpha-Beta滤波器
 // alpha增大时跟随更快, beta增大时对加减速更敏感
@@ -28,12 +30,15 @@ AlphaBeta_Filter_t AB_MotorB = {
 };
 
 #if defined AKM_CAR
-#define AKM_BLEND_T_SPEED_LOW      0.12f
-#define AKM_BLEND_M_SPEED_HIGH     0.28f
-#define AKM_BLEND_INV_SPAN         (1.0f / (AKM_BLEND_M_SPEED_HIGH - AKM_BLEND_T_SPEED_LOW))
-#define AKM_FEEDBACK_ZERO_EPS      0.001f
+#define AKM_FEEDBACK_T_ONLY_MAX        0.12f
+#define AKM_FEEDBACK_M_ONLY_MIN        0.26f
+#define AKM_FEEDBACK_ZERO_EPS          0.001f
+#define AKM_FEEDBACK_LPF_ALPHA         0.35f
+#define AKM_FEEDBACK_SRC_T             0u
+#define AKM_FEEDBACK_SRC_M             1u
 float akm_encoder_m_raw[2] = {0.0f, 0.0f};
 float akm_encoder_feedback_raw[2] = {0.0f, 0.0f};
+uint8_t akm_feedback_source[2] = {AKM_FEEDBACK_SRC_T, AKM_FEEDBACK_SRC_T};
 #endif
 
 #if defined AKM_CAR
@@ -217,6 +222,71 @@ static void PI_SetParam(PI_CONTROLLER* p,float kp,float ki,float kd)
 	}
 }
 
+static void SpeedCtrl_UpdateBeta(LADRC_CONTROLLER_t *p)
+{
+	p->beta1 = 2.0f * p->wo;
+	p->beta2 = p->wo * p->wo;
+}
+
+void SpeedCtrl_Init(LADRC_CONTROLLER_t *p,float b0,float wc,float wo,float kff,float u_deadzone)
+{
+	p->b0 = b0;
+	p->wc = wc;
+	p->wo = wo;
+	p->kff = kff;
+	p->u_deadzone = u_deadzone;
+	p->dt = 1.0f / (float)BALANCE_TASK_RATE;
+	p->out_limit = FULL_DUTYCYCLE;
+	SpeedCtrl_UpdateBeta(p);
+	SpeedCtrl_Reset(p);
+}
+
+void SpeedCtrl_Reset(LADRC_CONTROLLER_t *p)
+{
+	p->z1 = 0.0f;
+	p->z2 = 0.0f;
+	p->u_prev = 0.0f;
+	p->u_ff_last = 0.0f;
+}
+
+int SpeedCtrl_Compute(LADRC_CONTROLLER_t *p,float target,float meas)
+{
+	float e_obs;
+	float err;
+	float sign_target;
+	float u_ff;
+	float u;
+
+	if( p->b0 < 0.000001f ) return 0;
+
+	if( fabsf(target) < 0.01f && fabsf(meas) < SPEED_CTRL_STOP_RESET_EPS )
+	{
+		SpeedCtrl_Reset(p);
+		return 0;
+	}
+
+	e_obs = p->z1 - meas;
+	p->z1 += p->dt * (p->z2 - p->beta1 * e_obs + p->b0 * p->u_prev);
+	p->z2 += p->dt * (-p->beta2 * e_obs);
+
+	sign_target = (target > 0.0f) ? 1.0f : ((target < 0.0f) ? -1.0f : 0.0f);
+	u_ff = p->kff * target;
+	if( sign_target != 0.0f )
+	{
+		u_ff += p->u_deadzone * sign_target;
+	}
+	p->u_ff_last = u_ff;
+
+	err = target - p->z1;
+	u = ((p->wc * err) - p->z2) / p->b0 + u_ff;
+
+	if( u > p->out_limit ) u = p->out_limit;
+	if( u < -p->out_limit ) u = -p->out_limit;
+
+	p->u_prev = u;
+	return (int)u;
+}
+
 void Set_Robot_PI_Param(float kp,float ki,float kd)
 {
 	if( kp >= 0 ) robot.V_KP = kp;
@@ -227,6 +297,52 @@ void Set_Robot_PI_Param(float kp,float ki,float kd)
 	PI_SetParam(&PI_MotorB,robot.V_KP,robot.V_KI,kd);
 	PI_SetParam(&PI_MotorC,robot.V_KP,robot.V_KI,kd);
 	PI_SetParam(&PI_MotorD,robot.V_KP,robot.V_KI,kd);
+}
+
+void Set_Robot_LADRC_Param(float b0,float wc,float wo,float kff,float u_deadzone)
+{
+	if( b0 > 0.0f )
+	{
+		LADRC_MotorA.b0 = b0;
+		LADRC_MotorB.b0 = b0;
+	}
+	if( wc > 0.0f )
+	{
+		LADRC_MotorA.wc = wc;
+		LADRC_MotorB.wc = wc;
+	}
+	if( wo > 0.0f )
+	{
+		LADRC_MotorA.wo = wo;
+		LADRC_MotorB.wo = wo;
+	}
+	if( kff >= 0.0f )
+	{
+		LADRC_MotorA.kff = kff;
+		LADRC_MotorB.kff = kff;
+	}
+	if( u_deadzone >= 0.0f )
+	{
+		LADRC_MotorA.u_deadzone = u_deadzone;
+		LADRC_MotorB.u_deadzone = u_deadzone;
+	}
+	SpeedCtrl_UpdateBeta(&LADRC_MotorA);
+	SpeedCtrl_UpdateBeta(&LADRC_MotorB);
+}
+
+void Set_Robot_SpeedCtrlMode(uint8_t mode)
+{
+	if( mode > SPEED_CTRL_MODE_LADRC ) return;
+	robot_control.speed_ctrl_mode = mode;
+	PI_Controller_Reset(&PI_MotorA);
+	PI_Controller_Reset(&PI_MotorB);
+	SpeedCtrl_Reset(&LADRC_MotorA);
+	SpeedCtrl_Reset(&LADRC_MotorB);
+	if( mode == SPEED_CTRL_MODE_LADRC )
+	{
+		LADRC_MotorA.z1 = robot.MOTOR_A.Encoder;
+		LADRC_MotorB.z1 = robot.MOTOR_B.Encoder;
+	}
 }
 
 /**************************************************************************
@@ -245,6 +361,10 @@ static void PI_Controller_Reset(PI_CONTROLLER *p)
 	p->LastBias = 0;
 	p->LastestBias = 0;
 	p->Output = 0;
+	#if defined AKM_CAR
+	if( p == &PI_MotorA ) SpeedCtrl_Reset(&LADRC_MotorA);
+	if( p == &PI_MotorB ) SpeedCtrl_Reset(&LADRC_MotorB);
+	#endif
 }
 
 
@@ -317,6 +437,8 @@ void Set_UartTargetSpeed(float speed_a,float speed_b)
 		UartTarget_ClearMotionState();
 		PI_Controller_Reset(&PI_MotorA);
 		PI_Controller_Reset(&PI_MotorB);
+		SpeedCtrl_Reset(&LADRC_MotorA);
+		SpeedCtrl_Reset(&LADRC_MotorB);
 	}
 
 	robot_control.uart_target_mode = UART_TARGET_MODE_SPEED;
@@ -340,6 +462,8 @@ void Set_UartTargetPwm(int16_t pwm_a,int16_t pwm_b)
 		UartTarget_ClearMotionState();
 		PI_Controller_Reset(&PI_MotorA);
 		PI_Controller_Reset(&PI_MotorB);
+		SpeedCtrl_Reset(&LADRC_MotorA);
+		SpeedCtrl_Reset(&LADRC_MotorB);
 	}
 
 	robot_control.uart_target_mode = UART_TARGET_MODE_PWM;
@@ -1053,11 +1177,35 @@ static void ResponseControl(void)
 //    //得到控制目标值，进行运动学分析
 //与小车控制相关
 	//根据滑轨的行程、不同的车型 来确定PI参数
-	if(fabsf(robot.MOTOR_A.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorA); robot.MOTOR_A.Output = 0;}
-	else robot.MOTOR_A.Output = Incremental_MOTOR( &PI_MotorA , robot.MOTOR_A.Encoder , robot.MOTOR_A.Target );
+	if(fabsf(robot.MOTOR_A.Target) < 0.01f && fabsf(robot.MOTOR_A.Encoder) < SPEED_CTRL_STOP_RESET_EPS)
+	{
+		PI_Controller_Reset(&PI_MotorA);
+		SpeedCtrl_Reset(&LADRC_MotorA);
+		robot.MOTOR_A.Output = 0;
+	}
+	else if( robot_control.speed_ctrl_mode == SPEED_CTRL_MODE_LADRC )
+	{
+		robot.MOTOR_A.Output = SpeedCtrl_Compute(&LADRC_MotorA,robot.MOTOR_A.Target,robot.MOTOR_A.Encoder);
+	}
+	else
+	{
+		robot.MOTOR_A.Output = Incremental_MOTOR( &PI_MotorA , robot.MOTOR_A.Encoder , robot.MOTOR_A.Target );
+	}
 
-	if(fabsf(robot.MOTOR_B.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorB); robot.MOTOR_B.Output = 0;}
-	else robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
+	if(fabsf(robot.MOTOR_B.Target) < 0.01f && fabsf(robot.MOTOR_B.Encoder) < SPEED_CTRL_STOP_RESET_EPS)
+	{
+		PI_Controller_Reset(&PI_MotorB);
+		SpeedCtrl_Reset(&LADRC_MotorB);
+		robot.MOTOR_B.Output = 0;
+	}
+	else if( robot_control.speed_ctrl_mode == SPEED_CTRL_MODE_LADRC )
+	{
+		robot.MOTOR_B.Output = SpeedCtrl_Compute(&LADRC_MotorB,robot.MOTOR_B.Target,robot.MOTOR_B.Encoder);
+	}
+	else
+	{
+		robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
+	}
 	
 	//The servo of the top of the line Ackermann model only requires PI control. \
 	The high-end model does not come with steering rail feedback
@@ -1930,61 +2078,68 @@ Author: WHEELTEC
 作    者：WHEELTEC
 **************************************************************************/
 #if defined AKM_CAR
-static float AKM_MixEncoderFeedback(float t_speed, float m_speed, float last_feedback)
+static float AKM_MixEncoderFeedback(uint8_t motor_index,float t_speed,float m_speed,float last_feedback)
 {
 	float v_ref;
-	float alpha;
-	float t_abs;
-	float m_abs;
+	float selected_speed;
+	float alternate_speed;
 
+	if( motor_index >= 2u ) return m_speed;
 	v_ref = fabs(last_feedback);
 	if( v_ref < AKM_FEEDBACK_ZERO_EPS )
 	{
-		t_abs = fabs(t_speed);
-		m_abs = fabs(m_speed);
-		v_ref = (t_abs > m_abs) ? t_abs : m_abs;
+		v_ref = (fabs(t_speed) > fabs(m_speed)) ? fabs(t_speed) : fabs(m_speed);
 	}
 
-	if( v_ref < AKM_BLEND_T_SPEED_LOW )
-		return t_speed;
+	if( v_ref <= AKM_FEEDBACK_T_ONLY_MAX )
+	{
+		akm_feedback_source[motor_index] = AKM_FEEDBACK_SRC_T;
+	}
+	else if( v_ref >= AKM_FEEDBACK_M_ONLY_MIN )
+	{
+		akm_feedback_source[motor_index] = AKM_FEEDBACK_SRC_M;
+	}
 
-	if( v_ref >= AKM_BLEND_M_SPEED_HIGH )
-		return m_speed;
+	selected_speed = (akm_feedback_source[motor_index] == AKM_FEEDBACK_SRC_M) ? m_speed : t_speed;
+	alternate_speed = (akm_feedback_source[motor_index] == AKM_FEEDBACK_SRC_M) ? t_speed : m_speed;
 
-	alpha = (v_ref - AKM_BLEND_T_SPEED_LOW) * AKM_BLEND_INV_SPAN;
-	if( alpha < 0.0f ) alpha = 0.0f;
-	if( alpha > 1.0f ) alpha = 1.0f;
+	// 若当前源明显异常而另一源可信，则临时切换，避免单一路异常拖入控制器
+	if( fabsf(selected_speed - alternate_speed) > 0.5f && fabsf(alternate_speed) < fabsf(selected_speed) )
+	{
+		selected_speed = alternate_speed;
+	}
 
-	return ((1.0f - alpha) * t_speed) + (alpha * m_speed);
+	return selected_speed;
 }
 
 static float AKM_FilterWheelFeedback(AlphaBeta_Filter_t *filter, float mixed_speed, float t_speed, float m_speed)
 {
 	float raw_abs;
-	float filtered_abs;
-	float sign_raw;
-	float sign_filtered;
+	float filtered;
+	float last_filtered;
+
+	(void)filter;
 
 	raw_abs = fabsf(mixed_speed);
-	filtered_abs = fabsf(filter->x);
+	last_filtered = 0.0f;
+	if( &AB_MotorA == filter ) last_filtered = robot.MOTOR_A.Encoder;
+	else if( &AB_MotorB == filter ) last_filtered = robot.MOTOR_B.Encoder;
 
 	// 静止区直接复位,避免停车后滤波尾巴过长
 	if(raw_abs < 0.01f && fabsf(t_speed) < 0.01f && fabsf(m_speed) < 0.01f)
 	{
-		AlphaBeta_Filter_Reset(filter, 0.0f);
 		return 0.0f;
 	}
 
-	// 换向且原始测速已明显跨零时,复位变化率避免拖尾
-	sign_raw = (mixed_speed > 0.0f) - (mixed_speed < 0.0f);
-	sign_filtered = (filter->x > 0.0f) - (filter->x < 0.0f);
-	if(sign_raw != 0.0f && sign_filtered != 0.0f && sign_raw != sign_filtered && raw_abs > 0.03f && filtered_abs > 0.03f)
+	if( last_filtered != 0.0f && mixed_speed != 0.0f &&
+		((last_filtered > 0.0f && mixed_speed < 0.0f) || (last_filtered < 0.0f && mixed_speed > 0.0f)) &&
+		raw_abs > 0.03f )
 	{
-		AlphaBeta_Filter_Reset(filter, mixed_speed);
 		return mixed_speed;
 	}
 
-	return AlphaBeta_Filter_Update(filter, mixed_speed);
+	filtered = last_filtered + AKM_FEEDBACK_LPF_ALPHA * (mixed_speed - last_filtered);
+	return filtered;
 }
 #endif
 
@@ -2040,8 +2195,8 @@ static void Get_Robot_FeedBack(void)
 
 		akm_encoder_m_raw[0] = m_speed_a;
 		akm_encoder_m_raw[1] = m_speed_b;
-		akm_encoder_feedback_raw[0] = AKM_MixEncoderFeedback(t_speed_a, m_speed_a, robot.MOTOR_A.Encoder);
-		akm_encoder_feedback_raw[1] = AKM_MixEncoderFeedback(t_speed_b, m_speed_b, robot.MOTOR_B.Encoder);
+		akm_encoder_feedback_raw[0] = AKM_MixEncoderFeedback(0u,t_speed_a,m_speed_a,robot.MOTOR_A.Encoder);
+		akm_encoder_feedback_raw[1] = AKM_MixEncoderFeedback(1u,t_speed_b,m_speed_b,robot.MOTOR_B.Encoder);
 		robot.MOTOR_A.Encoder = AKM_FilterWheelFeedback(&AB_MotorA, akm_encoder_feedback_raw[0], t_speed_a, m_speed_a);
 		robot.MOTOR_B.Encoder = AKM_FilterWheelFeedback(&AB_MotorB, akm_encoder_feedback_raw[1], t_speed_b, m_speed_b);
         //Gets the position of the slide, representing the front wheel rotation Angle
@@ -2559,6 +2714,7 @@ void ROBOT_CONTROL_t_Init(ROBOT_CONTROL_t* p)
 	p->command_lostcount = 0;
 	p->ControlMode = 1;
 	p->FlagStop = 0;
+	p->speed_ctrl_mode = SPEED_CTRL_MODE_PI;
 	
 	//纠偏系数
 	p->LineDiffParam = 50;

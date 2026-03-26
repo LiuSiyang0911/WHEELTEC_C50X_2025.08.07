@@ -15,6 +15,7 @@
 static uint8_t debug_tx_buf[64];       /* 发送缓冲区(最长帧40字节,预留安全空间) */
 static volatile uint8_t dma_busy = 0;  /* DMA传输中标志 */
 static volatile uint8_t param_reply_pending = 0; /* 参数回复请求标志 */
+static uint8_t debug_stream_toggle = 0; /* 0:数据帧 1:控制状态帧 */
 
 /* ---- RX状态机 ---- */
 typedef enum {
@@ -40,8 +41,10 @@ static void pack_float(uint8_t *buf, float val);
 static void pack_int16(uint8_t *buf, int16_t val);
 static float unpack_float(const uint8_t *buf);
 static int16_t unpack_int16(const uint8_t *buf);
+static int is_valid_range(float val, float min_val, float max_val);
 static void debug_execute_cmd(uint8_t cmd, const uint8_t *payload, uint8_t len);
 static void dma_start_tx(uint16_t len);
+static void Debug_SendCtrlFrame(void);
 
 /*===========================================================================
  * memcpy辅助函数 - 保证ARM对齐安全
@@ -83,6 +86,13 @@ static int is_valid_speed(float val)
 {
 	if (val != val) return 0;
 	if (val < 0.0f || val > 10.0f) return 0;
+	return 1;
+}
+
+static int is_valid_range(float val, float min_val, float max_val)
+{
+	if (val != val) return 0;
+	if (val < min_val || val > max_val) return 0;
 	return 1;
 }
 
@@ -223,6 +233,16 @@ void Debug_SendDataFrame(void)
 		return;
 	}
 
+	#if defined AKM_CAR
+	if (debug_stream_toggle != 0u)
+	{
+		debug_stream_toggle = 0u;
+		Debug_SendCtrlFrame();
+		return;
+	}
+	debug_stream_toggle = 1u;
+	#endif
+
 	/* 组装帧头 */
 	debug_tx_buf[0] = DEBUG_FRAME_HEADER1;
 	debug_tx_buf[1] = DEBUG_FRAME_HEADER2;
@@ -263,21 +283,56 @@ void Debug_SendDataFrame(void)
 	dma_start_tx(DEBUG_DATA_FRAME_LEN);
 }
 
+static void Debug_SendCtrlFrame(void)
+{
+	uint8_t i;
+	uint8_t xor_sum;
+
+	if (dma_busy) return;
+
+	debug_tx_buf[0] = DEBUG_FRAME_HEADER1;
+	debug_tx_buf[1] = DEBUG_FRAME_HEADER2;
+	debug_tx_buf[2] = DEBUG_FRAME_CTRL;
+	debug_tx_buf[3] = robot_control.speed_ctrl_mode;
+
+	pack_float(&debug_tx_buf[4],  robot.MOTOR_A.Encoder);
+	pack_float(&debug_tx_buf[8],  robot.MOTOR_B.Encoder);
+	pack_float(&debug_tx_buf[12], LADRC_MotorA.z1);
+	pack_float(&debug_tx_buf[16], LADRC_MotorB.z1);
+	pack_float(&debug_tx_buf[20], LADRC_MotorA.z2);
+	pack_float(&debug_tx_buf[24], LADRC_MotorB.z2);
+	pack_float(&debug_tx_buf[28], LADRC_MotorA.u_ff_last);
+	pack_float(&debug_tx_buf[32], LADRC_MotorB.u_ff_last);
+	pack_int16(&debug_tx_buf[36], (int16_t)robot.MOTOR_A.Output);
+	pack_int16(&debug_tx_buf[38], (int16_t)robot.MOTOR_B.Output);
+	pack_int16(&debug_tx_buf[40], (int16_t)((encoder_T_short_dt_count[0] > 32767u) ? 32767 : encoder_T_short_dt_count[0]));
+	pack_int16(&debug_tx_buf[42], (int16_t)((encoder_T_short_dt_count[1] > 32767u) ? 32767 : encoder_T_short_dt_count[1]));
+
+	xor_sum = 0;
+	for (i = 0; i < (DEBUG_CTRL_FRAME_LEN - 1); i++)
+		xor_sum ^= debug_tx_buf[i];
+	debug_tx_buf[DEBUG_CTRL_FRAME_LEN - 1] = xor_sum;
+
+	dma_start_tx(DEBUG_CTRL_FRAME_LEN);
+}
+
 /*===========================================================================
- * TX参数回复帧 (40字节)
+ * TX参数回复帧
  *
  *   [0-1]   0xAA 0x55
  *   [2]     FrameID = 0x02
- *   [3-6]   A_kp     (float)
- *   [7-10]  A_ki     (float)
- *   [11-14] A_kd     (float)
- *   [15-18] B_kp     (float)
- *   [19-22] B_ki     (float)
- *   [23-26] B_kd     (float)
- *   [27-30] rc_speed        (float)
- *   [31-34] limt_max_speed  (float)
- *   [35-38] smooth_MotorStep(float)
- *   [39]    checksum (XOR of bytes 0..38)
+ *   [3]     ctrl_mode
+ *   [4-7]   b0
+ *   [8-11]  wc
+ *   [12-15] wo
+ *   [16-19] kff
+ *   [20-23] u_deadzone
+ *   [24-27] rc_speed
+ *   [28-31] limt_max_speed
+ *   [32-35] smooth_MotorStep
+ *   [36-39] PI_A_kp
+ *   [40-43] PI_A_ki
+ *   [44]    checksum
  *===========================================================================*/
 void Debug_SendParamFrame(void)
 {
@@ -290,21 +345,23 @@ void Debug_SendParamFrame(void)
 	debug_tx_buf[0] = DEBUG_FRAME_HEADER1;
 	debug_tx_buf[1] = DEBUG_FRAME_HEADER2;
 	debug_tx_buf[2] = DEBUG_FRAME_PARAM;
+	debug_tx_buf[3] = robot_control.speed_ctrl_mode;
 
-	pack_float(&debug_tx_buf[3],  PI_MotorA.kp);
-	pack_float(&debug_tx_buf[7],  PI_MotorA.ki);
-	pack_float(&debug_tx_buf[11], PI_MotorA.kd);
-	pack_float(&debug_tx_buf[15], PI_MotorB.kp);
-	pack_float(&debug_tx_buf[19], PI_MotorB.ki);
-	pack_float(&debug_tx_buf[23], PI_MotorB.kd);
-	pack_float(&debug_tx_buf[27], robot_control.rc_speed);
-	pack_float(&debug_tx_buf[31], robot_control.limt_max_speed);
-	pack_float(&debug_tx_buf[35], robot_control.smooth_MotorStep);
+	pack_float(&debug_tx_buf[4],  LADRC_MotorA.b0);
+	pack_float(&debug_tx_buf[8],  LADRC_MotorA.wc);
+	pack_float(&debug_tx_buf[12], LADRC_MotorA.wo);
+	pack_float(&debug_tx_buf[16], LADRC_MotorA.kff);
+	pack_float(&debug_tx_buf[20], LADRC_MotorA.u_deadzone);
+	pack_float(&debug_tx_buf[24], robot_control.rc_speed);
+	pack_float(&debug_tx_buf[28], robot_control.limt_max_speed);
+	pack_float(&debug_tx_buf[32], robot_control.smooth_MotorStep);
+	pack_float(&debug_tx_buf[36], PI_MotorA.kp);
+	pack_float(&debug_tx_buf[40], PI_MotorA.ki);
 
 	xor_sum = 0;
-	for (i = 0; i < 39; i++)
+	for (i = 0; i < (DEBUG_PARAM_FRAME_LEN - 1); i++)
 		xor_sum ^= debug_tx_buf[i];
-	debug_tx_buf[39] = xor_sum;
+	debug_tx_buf[DEBUG_PARAM_FRAME_LEN - 1] = xor_sum;
 
 	dma_start_tx(DEBUG_PARAM_FRAME_LEN);
 }
@@ -400,6 +457,7 @@ void Debug_ProcessRxByte(uint8_t byte)
 static void debug_execute_cmd(uint8_t cmd, const uint8_t *payload, uint8_t len)
 {
 	float kp, ki, kd, val;
+	float b0, wc, wo, kff, u_deadzone;
 	float speed_a, speed_b;
 	int16_t pwm_a, pwm_b;
 
@@ -495,6 +553,32 @@ static void debug_execute_cmd(uint8_t cmd, const uint8_t *payload, uint8_t len)
 
 	case DEBUG_CMD_QUERY: /* 查询当前参数 */
 		param_reply_pending = 1; /* 下一个发送周期回复 */
+		break;
+
+	case DEBUG_CMD_SET_CTRL_MODE:
+		if (len >= 1)
+		{
+			if (payload[0] <= SPEED_CTRL_MODE_LADRC)
+				Set_Robot_SpeedCtrlMode(payload[0]);
+		}
+		break;
+
+	case DEBUG_CMD_SET_LADRC_AB:
+		if (len >= 20)
+		{
+			b0 = unpack_float(&payload[0]);
+			wc = unpack_float(&payload[4]);
+			wo = unpack_float(&payload[8]);
+			kff = unpack_float(&payload[12]);
+			u_deadzone = unpack_float(&payload[16]);
+			if (!is_valid_range(b0, 0.00001f, 0.01f) ||
+			    !is_valid_range(wc, 1.0f, 100.0f) ||
+			    !is_valid_range(wo, 1.0f, 300.0f) ||
+			    !is_valid_range(kff, 0.0f, 50000.0f) ||
+			    !is_valid_range(u_deadzone, 0.0f, 5000.0f))
+				break;
+			Set_Robot_LADRC_Param(b0, wc, wo, kff, u_deadzone);
+		}
 		break;
 
 	default:

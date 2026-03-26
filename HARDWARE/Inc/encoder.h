@@ -1,4 +1,4 @@
-#ifndef __ENCODER_H
+﻿#ifndef __ENCODER_H
 #define __ENCODER_H 
 #include "sys.h"
 
@@ -22,6 +22,7 @@ short Read_Encoder(ENCODER_t e);
 #if defined AKM_CAR
 /* 由 ISR 更新的原始速度 [0]=EncA [1]=EncB, 单位 m/s (未除WheelDiff) */
 extern volatile float    encoder_T_velocity_raw[2];
+extern volatile uint16_t encoder_T_short_dt_count[2];
 /* 上次脉冲时刻, 用于零速超时判断 */
 extern volatile uint32_t last_pulse_update[2];
 /* 由 system.c 在 Robot_Select() 后赋值: Wheel_Circ / (Encoder_precision/4) */

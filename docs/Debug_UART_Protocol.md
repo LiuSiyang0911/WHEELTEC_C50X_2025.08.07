@@ -1,244 +1,239 @@
-# WHEELTEC C50X 调试串口通信协议
-
-## 目录
-- [1. 概述](#1-概述)
-- [2. 硬件配置](#2-硬件配置)
-- [3. 通用帧格式](#3-通用帧格式)
-- [4. TX 数据帧（0x01）](#4-tx-数据帧0x01)
-- [5. TX 参数帧（0x02）](#5-tx-参数帧0x02)
-- [6. RX 命令帧](#6-rx-命令帧)
-- [7. 命令列表](#7-命令列表)
-- [8. 校验算法](#8-校验算法)
-- [9. 注意事项](#9-注意事项)
-- [10. 源码位置索引](#10-源码位置索引)
-
----
+﻿# WHEELTEC C50X Debug UART Protocol
 
 ## 1. 概述
 
-调试串口模块通过 UART1 + DMA 实现实时数据流输出和命令接收，用于电机调试和参数调优。
+调试串口模块通过 `UART1 + DMA` 实现实时数据输出和命令接收，主要用于 AKM 车型速度环调试、PI/LADRC 参数在线整定以及开环/闭环对比分析。
 
-**通信方向：**
-- **TX（Robot → PC）：** 100Hz 实时数据帧（T法原始速度、M法原始速度、融合后速度、当前目标、当前输出）+ 按需参数回复帧
-- **RX（PC → Robot）：** 命令帧（设置 PID、速度限制、USART1 目标速度、USART1 目标 PWM，查询当前参数）
+通信方向：
+- TX（Robot -> PC）：周期发送实时数据帧、控制状态帧，按需发送参数帧
+- RX（PC -> Robot）：在线设置 PID、LADRC、速度限制、平滑参数、A/B 两轮目标速度或目标 PWM
 
-**关键特性：**
-- DMA 非阻塞发送，不影响 Balance_task 实时性
-- DMA 忙时丢帧（不缓冲），保证最新数据优先
-- 参数修改仅运行时生效，断电不保存
-- USART1 的目标速度模式与目标 PWM 模式互斥，后下发的模式会覆盖前一种模式
-
----
+当前实现对应源码：
+- [debug_uart.h](C:/Users/86136/Desktop/work/work/WHEELTEC_C50X_2025.08.07/HARDWARE/Inc/debug_uart.h)
+- [debug_uart.c](C:/Users/86136/Desktop/work/work/WHEELTEC_C50X_2025.08.07/HARDWARE/debug_uart.c)
+- [balance_task.h](C:/Users/86136/Desktop/work/work/WHEELTEC_C50X_2025.08.07/BALANCE/Inc/balance_task.h)
+- [balance_task.c](C:/Users/86136/Desktop/work/work/WHEELTEC_C50X_2025.08.07/BALANCE/balance_task.c)
 
 ## 2. 硬件配置
 
 | 项目 | 配置 |
 |------|------|
-| 串口 | USART1 |
-| 波特率 | 115200 bps |
-| 数据位 | 8 bit |
-| 停止位 | 1 bit |
+| 串口 | `USART1` |
+| 波特率 | `115200` |
+| 数据位 | `8` |
+| 停止位 | `1` |
 | 校验位 | 无 |
-| TX 引脚 | PA9 |
-| RX 引脚 | PA10 |
-| DMA 通道 | DMA2_Stream7_Channel4（Memory → Peripheral） |
-| DMA 模式 | Normal（单次） |
-| DMA 优先级 | Medium |
-| DMA 完成中断 | DMA2_Stream7_IRQn（抢占优先级 5） |
-| UART 接收中断 | USART1_IRQn（抢占优先级 4） |
-
----
+| TX 引脚 | `PA9` |
+| RX 引脚 | `PA10` |
+| TX DMA | `DMA2_Stream7_Channel4` |
+| 发送方式 | DMA 单次发送 |
+| 接收方式 | USART1 RXNE 中断 + 状态机解析 |
 
 ## 3. 通用帧格式
 
 ### 3.1 字节序
 
-所有多字节数据均为**小端序**（ARM Cortex-M4 native），float 为 IEEE-754 单精度（32 位）。
+所有多字节数据均为小端序，`float` 使用 IEEE-754 单精度 32 位格式。
 
-### 3.2 TX 帧通用结构
+### 3.2 TX 帧格式
 
-```
-[0]     0xAA          帧头1
-[1]     0x55          帧头2
-[2]     FrameID       帧类型标识 (0x01=数据, 0x02=参数)
-[3..N-2] Payload      数据域
-[N-1]   Checksum      XOR校验 (bytes 0 ~ N-2)
-```
-
-### 3.3 RX 帧通用结构
-
-```
-[0]     0xAA          帧头1
-[1]     0x55          帧头2
-[2]     CmdID         命令ID
-[3]     Length         Payload长度 (字节数)
-[4..3+Length] Payload  数据域
-[4+Length]   Checksum  XOR校验 (bytes 0 ~ 3+Length)
+```text
+[0]     0xAA
+[1]     0x55
+[2]     FrameID
+[3..N-2] Payload
+[N-1]   Checksum
 ```
 
----
+说明：
+- `Checksum = XOR(bytes[0 .. N-2])`
 
-## 4. TX 数据帧（0x01）
+### 3.3 RX 帧格式
 
-**总长度：** 40 字节
-**发送频率：** 100 Hz（由 Balance_task 调用）
-**FrameID：** `0x01`
+```text
+[0]         0xAA
+[1]         0x55
+[2]         CmdID
+[3]         Length
+[4..3+L]    Payload
+[4+L]       Checksum
+```
 
-### 字段定义
+说明：
+- `Checksum = XOR(bytes[0 .. 3+Length])`
+- 当前接收缓冲区 `DEBUG_RX_BUF_LEN = 32`
+- RX 状态机超时阈值约为 `5` 个 `Balance_task` 周期，当前约 `50ms`
+
+## 4. TX 帧定义
+
+### 4.1 数据帧 `FrameID = 0x01`
+
+- 总长度：`40` 字节
+- 发送频率：由 `Balance_task` 在 `100Hz` 周期内触发
+- 在 `AKM_CAR` 构建下，和控制状态帧 `0x03` 交替发送
 
 | 偏移 | 长度 | 类型 | 字段 | 说明 |
 |------|------|------|------|------|
 | 0 | 1 | uint8 | header1 | 固定 `0xAA` |
 | 1 | 1 | uint8 | header2 | 固定 `0x55` |
 | 2 | 1 | uint8 | frame_id | 固定 `0x01` |
-| 3-6 | 4 | float | t_raw_A | 电机A T法原始速度 (m/s) |
-| 7-10 | 4 | float | t_raw_B | 电机B T法原始速度 (m/s) |
-| 11-14 | 4 | float | m_raw_A | 电机A M法原始速度 (m/s) |
-| 15-18 | 4 | float | m_raw_B | 电机B M法原始速度 (m/s) |
-| 19-22 | 4 | float | final_A | 电机A 融合并滤波后的闭环反馈速度 (m/s) |
-| 23-26 | 4 | float | final_B | 电机B 融合并滤波后的闭环反馈速度 (m/s) |
-| 27-30 | 4 | float | target_A | 电机A 当前目标值 |
-| 31-34 | 4 | float | target_B | 电机B 当前目标值 |
-| 35-36 | 2 | int16 | output_A | 电机A 当前输出 PWM |
-| 37-38 | 2 | int16 | output_B | 电机B 当前输出 PWM |
-| 39 | 1 | uint8 | checksum | XOR(bytes 0..38) |
+| 3-6 | 4 | float | t_raw_A | 电机 A 的 T 法原始速度，单位 `m/s` |
+| 7-10 | 4 | float | t_raw_B | 电机 B 的 T 法原始速度，单位 `m/s` |
+| 11-14 | 4 | float | m_raw_A | 电机 A 的 M 法原始速度，单位 `m/s` |
+| 15-18 | 4 | float | m_raw_B | 电机 B 的 M 法原始速度，单位 `m/s` |
+| 19-22 | 4 | float | final_A | A 轮当前闭环反馈速度，单位 `m/s` |
+| 23-26 | 4 | float | final_B | B 轮当前闭环反馈速度，单位 `m/s` |
+| 27-30 | 4 | float | target_A | A 轮目标速度，单位 `m/s` |
+| 31-34 | 4 | float | target_B | B 轮目标速度，单位 `m/s` |
+| 35-36 | 2 | int16 | output_A | A 轮当前输出 PWM |
+| 37-38 | 2 | int16 | output_B | B 轮当前输出 PWM |
+| 39 | 1 | uint8 | checksum | XOR(bytes `0..38`) |
 
-> **注意：**
-> - `t_raw_A/B`、`m_raw_A/B` 仅在 AKM（阿克曼）底盘构建时有效，其他底盘类型固定为 `0.0f`。
-> - `final_A/B` 为当前闭环实际使用的速度反馈，已包含 T/M 融合与一阶 Kalman 平滑。
-> - 在 `SPEED` 模式下，`target_A/B` 单位为 m/s，`output_A/B` 为 PI 计算后的 PWM 输出。
-> - 在 `PWM` 模式下，`target_A/B` 直接表示当前动作映射后的目标 PWM 值，`output_A/B` 为实际下发的 PWM 输出。
+说明：
+- 非 `AKM_CAR` 构建下，`t_raw_A/B` 与 `m_raw_A/B` 固定为 `0.0f`
+- `final_A/B` 为当前实际进入速度环的反馈值
 
----
+### 4.2 参数帧 `FrameID = 0x02`
 
-## 5. TX 参数帧（0x02）
-
-**总长度：** 40 字节
-**发送触发：** 收到 `0x30` 查询命令后，在下一个 100Hz 周期发送
-**FrameID：** `0x02`
-
-### 字段定义
+- 总长度：`45` 字节
+- 触发方式：收到查询命令 `0x30` 后，在下一个发送周期回复
 
 | 偏移 | 长度 | 类型 | 字段 | 说明 |
 |------|------|------|------|------|
 | 0 | 1 | uint8 | header1 | 固定 `0xAA` |
 | 1 | 1 | uint8 | header2 | 固定 `0x55` |
 | 2 | 1 | uint8 | frame_id | 固定 `0x02` |
-| 3-6 | 4 | float | A_kp | 电机A 比例增益 Kp |
-| 7-10 | 4 | float | A_ki | 电机A 积分增益 Ki |
-| 11-14 | 4 | float | A_kd | 电机A 微分增益 Kd |
-| 15-18 | 4 | float | B_kp | 电机B 比例增益 Kp |
-| 19-22 | 4 | float | B_ki | 电机B 积分增益 Ki |
-| 23-26 | 4 | float | B_kd | 电机B 微分增益 Kd |
-| 27-30 | 4 | float | rc_speed | 遥控速度限制 |
-| 31-34 | 4 | float | limt_max_speed | 最大速度限制 (m/s) |
-| 35-38 | 4 | float | smooth_MotorStep | 电机加速平滑步进 |
-| 39 | 1 | uint8 | checksum | XOR(bytes 0..38) |
+| 3 | 1 | uint8 | ctrl_mode | 速度环模式，`0=PI`，`1=LADRC` |
+| 4-7 | 4 | float | b0 | LADRC 控制增益估计 |
+| 8-11 | 4 | float | wc | LADRC 闭环带宽 |
+| 12-15 | 4 | float | wo | LADRC ESO 带宽 |
+| 16-19 | 4 | float | kff | 速度前馈系数 |
+| 20-23 | 4 | float | u_deadzone | 静摩擦补偿 PWM |
+| 24-27 | 4 | float | rc_speed | 遥控速度基准 |
+| 28-31 | 4 | float | limt_max_speed | 最大速度限制，单位 `m/s` |
+| 32-35 | 4 | float | smooth_MotorStep | 速度平滑步进 |
+| 36-39 | 4 | float | pi_kp | 当前 PI 的 `kp` |
+| 40-43 | 4 | float | pi_ki | 当前 PI 的 `ki` |
+| 44 | 1 | uint8 | checksum | XOR(bytes `0..43`) |
 
----
+说明：
+- 当前参数帧只回传 A 轮 PI 参数；B 轮通常与 A 轮保持一致
+- `ctrl_mode` 对应 `robot_control.speed_ctrl_mode`
 
-## 6. RX 命令帧
+### 4.3 控制状态帧 `FrameID = 0x03`
 
-### 帧结构
+- 总长度：`45` 字节
+- 发送方式：仅在 `AKM_CAR` 构建下启用，与 `0x01` 数据帧交替发送
 
-```
-+--------+--------+-------+--------+------------------+----------+
-| 0xAA   | 0x55   | CmdID | Length | Payload (0~12B)  | Checksum |
-+--------+--------+-------+--------+------------------+----------+
-  1 byte   1 byte  1 byte  1 byte    Length bytes        1 byte
-```
+| 偏移 | 长度 | 类型 | 字段 | 说明 |
+|------|------|------|------|------|
+| 0 | 1 | uint8 | header1 | 固定 `0xAA` |
+| 1 | 1 | uint8 | header2 | 固定 `0x55` |
+| 2 | 1 | uint8 | frame_id | 固定 `0x03` |
+| 3 | 1 | uint8 | ctrl_mode | 速度环模式，`0=PI`，`1=LADRC` |
+| 4-7 | 4 | float | meas_A | A 轮当前闭环反馈速度 |
+| 8-11 | 4 | float | meas_B | B 轮当前闭环反馈速度 |
+| 12-15 | 4 | float | z1_A | A 轮 LADRC ESO 状态 `z1` |
+| 16-19 | 4 | float | z1_B | B 轮 LADRC ESO 状态 `z1` |
+| 20-23 | 4 | float | z2_A | A 轮 LADRC ESO 状态 `z2` |
+| 24-27 | 4 | float | z2_B | B 轮 LADRC ESO 状态 `z2` |
+| 28-31 | 4 | float | uff_A | A 轮上一拍前馈输出 |
+| 32-35 | 4 | float | uff_B | B 轮上一拍前馈输出 |
+| 36-37 | 2 | int16 | output_A | A 轮当前 PWM 输出 |
+| 38-39 | 2 | int16 | output_B | B 轮当前 PWM 输出 |
+| 40-41 | 2 | int16 | short_dt_A | A 轮 T 法异常短周期计数，饱和到 `32767` |
+| 42-43 | 2 | int16 | short_dt_B | B 轮 T 法异常短周期计数，饱和到 `32767` |
+| 44 | 1 | uint8 | checksum | XOR(bytes `0..43`) |
 
-### 接收状态机
+说明：
+- `short_dt_A/B` 用于辅助判断编码器噪声或毛刺脉冲
+- 当处于 `PI` 模式时，`z1/z2/uff` 仍可能保留最近一次 LADRC 状态
 
-```
-WAIT_HEADER1 → (0xAA) → WAIT_HEADER2
-    → (0x55): WAIT_CMD → WAIT_LEN
-        → Length=0: WAIT_CHECKSUM
-        → Length>24: 丢弃,回到WAIT_HEADER1
-        → 其他: WAIT_PAYLOAD → 收齐Length字节 → WAIT_CHECKSUM
-            → 校验通过: 执行命令
-            → 校验失败: 静默丢弃
-    → (0xAA): 留在WAIT_HEADER2 (帧头重评估,避免丢失紧跟的有效帧)
-    → 其他: 回到WAIT_HEADER1
+## 5. RX 命令定义
 
-超时: 约50ms (5个Balance_task周期) 无新字节时,自动复位到WAIT_HEADER1
-```
-
-**最大 Payload 长度：** 24 字节（`DEBUG_RX_BUF_LEN`，当前最长命令为 12 字节）
-
-### USART1 目标控制模式
-
-- `0x23` 进入 `SPEED` 模式，设置 AKM A/B 两轮目标速度
-- `0x24` 进入 `PWM` 模式，设置 AKM A/B 两轮目标 PWM
-- 两种模式互斥，后收到的新模式会清理前一种模式的运行状态
-- 这两个命令只负责“设定目标值”，实际动作方向仍由蓝牙 `UART4` 的 APP 命令触发
-
----
-
-## 7. 命令列表
-
-### 7.1 设置两轮 PID（0x10）
-
-同时设置电机 A 和电机 B 的 PID 参数为相同值。
+### 5.1 `0x10` 设置 A/B 两轮共同 PID
 
 | 字段 | 值 |
 |------|-----|
 | CmdID | `0x10` |
 | Length | `12` |
-| Payload | `Kp(float)` + `Ki(float)` + `Kd(float)` |
+| Payload | `kp(float) + ki(float) + kd(float)` |
 
-**效果：** 同步更新 `PI_MotorA`、`PI_MotorB` 以及全局 `robot.V_KP`、`robot.V_KI`。
+说明：
+- 同时修改 `PI_MotorA`、`PI_MotorB`
+- 同步更新全局 `robot.V_KP`、`robot.V_KI`
 
-### 7.2 设置电机 A PID（0x11）
-
-仅设置电机 A 的 PID 参数。
+### 5.2 `0x11` 设置 A 轮 PID
 
 | 字段 | 值 |
 |------|-----|
 | CmdID | `0x11` |
 | Length | `12` |
-| Payload | `Kp(float)` + `Ki(float)` + `Kd(float)` |
+| Payload | `kp(float) + ki(float) + kd(float)` |
 
-### 7.3 设置电机 B PID（0x12）
-
-仅设置电机 B 的 PID 参数。
+### 5.3 `0x12` 设置 B 轮 PID
 
 | 字段 | 值 |
 |------|-----|
 | CmdID | `0x12` |
 | Length | `12` |
-| Payload | `Kp(float)` + `Ki(float)` + `Kd(float)` |
+| Payload | `kp(float) + ki(float) + kd(float)` |
 
-### 7.4 设置遥控速度限制（0x20）
+### 5.4 `0x20` 设置 `rc_speed`
 
 | 字段 | 值 |
 |------|-----|
 | CmdID | `0x20` |
 | Length | `4` |
-| Payload | `Value(float)` |
-| 有效范围 | `0 < Value ≤ 10000.0` |
+| Payload | `value(float)` |
+| 范围 | `0 < value <= 10000.0` |
 
-超出范围的值会被固件静默拒绝。
-
-### 7.5 设置最大速度限制（0x21）
+### 5.5 `0x21` 设置 `limt_max_speed`
 
 | 字段 | 值 |
 |------|-----|
 | CmdID | `0x21` |
 | Length | `4` |
-| Payload | `Value(float)` |
-| 有效范围 | `0 < Value ≤ 10.0` (m/s) |
+| Payload | `value(float)` |
+| 范围 | `0 < value <= 10.0` |
 
-### 7.6 设置电机加速平滑步进（0x22）
+### 5.6 `0x22` 设置 `smooth_MotorStep`
 
 | 字段 | 值 |
 |------|-----|
 | CmdID | `0x22` |
 | Length | `4` |
-| Payload | `Value(float)` |
-| 有效范围 | `0 < Value ≤ 1.0` |
+| Payload | `value(float)` |
+| 范围 | `0 < value <= 1.0` |
 
-### 7.7 查询当前参数（0x30）
+### 5.7 `0x23` 设置 A/B 两轮目标速度
+
+| 字段 | 值 |
+|------|-----|
+| CmdID | `0x23` |
+| Length | `8` |
+| Payload | `speed_a(float) + speed_b(float)` |
+| 范围 | `0 <= value <= 10.0` |
+
+说明：
+- 进入 `UART_TARGET_MODE_SPEED`
+- 当前实现对输入值取绝对值，方向仍由车体控制链路决定
+- 切换到此模式时会清空之前的 UART PWM 目标状态并复位 A/B 控制器
+
+### 5.8 `0x24` 设置 A/B 两轮目标 PWM
+
+| 字段 | 值 |
+|------|-----|
+| CmdID | `0x24` |
+| Length | `4` |
+| Payload | `pwm_a(int16) + pwm_b(int16)` |
+| 范围 | `0 <= value <= FULL_DUTYCYCLE` |
+
+说明：
+- 进入 `UART_TARGET_MODE_PWM`
+- 当前实现对输入值取绝对值
+
+### 5.9 `0x30` 查询当前参数
 
 | 字段 | 值 |
 |------|-----|
@@ -246,82 +241,75 @@ WAIT_HEADER1 → (0xAA) → WAIT_HEADER2
 | Length | `0` |
 | Payload | 无 |
 
-**效果：** 固件在下一个 100Hz 周期回复一帧参数帧（0x02）。
+说明：
+- 下一个发送周期会回传 `0x02` 参数帧
 
-### 7.8 设置 A/B 两轮目标速度（0x23）
-
-该命令仅用于 AKM 底盘，设置 USART1 的左右轮目标速度。进入该模式后，蓝牙 APP 继续负责动作方向，固件按 APP 方向组合这两个目标值，再走闭环控制。
-
-| 字段 | 值 |
-|------|-----|
-| CmdID | `0x23` |
-| Length | `8` |
-| Payload | `speed_a(float)` + `speed_b(float)` |
-| 有效范围 | `0 ≤ Value ≤ 10.0` (m/s) |
-
-**说明：**
-- `SPEED` 模式与 `PWM` 模式互斥。
-- `A/E` 使用 `speed_a/speed_b` 的正反向组合作为左右轮目标。
-- `B/H/D/F` 通过交换或翻转 A/B 目标实现左右转方向组合。
-- `C/G` 在 `SPEED` 模式下使用左右轮反向目标进行原地调试转向。
-
-### 7.9 设置 A/B 两轮目标 PWM（0x24）
-
-该命令仅用于 AKM 底盘，设置 USART1 的左右轮目标 PWM。进入该模式后，蓝牙 APP 继续负责动作方向，固件按 APP 方向组合这两个目标值，再直接输出 PWM，不经过 PI。
+### 5.10 `0x40` 设置速度环模式
 
 | 字段 | 值 |
 |------|-----|
-| CmdID | `0x24` |
-| Length | `4` |
-| Payload | `pwm_a(int16)` + `pwm_b(int16)` |
-| 有效范围 | `0 ≤ Value ≤ 16800` |
+| CmdID | `0x40` |
+| Length | `1` |
+| Payload | `mode(uint8)` |
+| 取值 | `0=PI`, `1=LADRC` |
 
-**说明：**
-- `PWM` 模式与 `SPEED` 模式互斥。
-- `A/E` 使用 `pwm_a/pwm_b` 的正反向组合作为左右轮输出。
-- `B/H/D/F` 通过交换或翻转 A/B 输出实现左右转方向组合。
-- `C/G` 在 `PWM` 模式下等同停止，收到后清零 A/B 电机输出。
+说明：
+- 切换模式时会复位 A/B 的 PI 与 LADRC 内部状态
+- 切到 LADRC 时，`z1` 会先贴合当前 `robot.MOTOR_A/B.Encoder`
 
----
+### 5.11 `0x41` 设置 A/B 两轮 LADRC 参数
 
-## 8. 校验算法
+| 字段 | 值 |
+|------|-----|
+| CmdID | `0x41` |
+| Length | `20` |
+| Payload | `b0(float) + wc(float) + wo(float) + kff(float) + u_deadzone(float)` |
 
-TX 和 RX 均使用**逐字节 XOR** 校验。
+有效范围：
+- `0.00001 <= b0 <= 0.01`
+- `1.0 <= wc <= 100.0`
+- `1.0 <= wo <= 300.0`
+- `0.0 <= kff <= 50000.0`
+- `0.0 <= u_deadzone <= 5000.0`
 
+说明：
+- 同时更新 A/B 两轮 LADRC 参数
+- 更新 `wc/wo` 后会立即重新计算 `beta1 = 2*wo`、`beta2 = wo*wo`
+
+## 6. 当前默认值
+
+AKM 目标下系统初始化默认切换到 LADRC，默认参数如下：
+
+| 参数 | 默认值 |
+|------|--------|
+| `b0` | `0.00080` |
+| `wc` | `18.0` |
+| `wo` | `54.0` |
+| `kff` | `7000.0` |
+| `u_deadzone` | `900.0` |
+
+速度环零速复位条件：
+- `fabs(target) < 0.01`
+- 且 `fabs(meas) < 0.02`
+
+## 7. 校验算法
+
+发送和接收均使用逐字节 XOR 校验。
+
+示例：
+
+```c
+uint8_t checksum = 0;
+for (i = 0; i < len_without_checksum; i++)
+{
+    checksum ^= buf[i];
+}
 ```
-checksum = 0
-for byte in frame[0 .. N-2]:
-    checksum ^= byte
-frame[N-1] = checksum
-```
 
-- **TX 数据帧：** XOR(bytes 0..38)，存入 byte[39]
-- **TX 参数帧：** XOR(bytes 0..38)，存入 byte[39]
-- **RX 命令帧：** XOR(bytes 0..3+Length)，与接收的 checksum 字节比较
+## 8. 注意事项
 
----
-
-## 9. 注意事项
-
-1. **非阻塞发送：** DMA 忙时当前帧被丢弃，不排队缓冲，保证发送的始终是最新数据
-2. **参数不持久化：** 通过命令修改的参数仅运行时有效，断电后恢复为初始值
-3. **PID 参数校验：** 固件对 Kp/Ki/Kd 做范围校验（`0 ≤ val ≤ 50000`），NaN/Inf 及超出范围的值会被静默拒绝，整条命令丢弃
-4. **参数帧优先：** 有参数回复请求时，该周期会发送参数帧替代数据帧（不会同时发送两帧）
-5. **底盘差异：** 数据帧中 `t_raw_A/B`、`m_raw_A/B` 字段仅 AKM 底盘有效，其他底盘类型为 0
-6. **AKM 混合测速：** AKM 车型的 `final_A/B` 为低速 T 法、中高速 M 法和过渡区融合后的最终反馈，不再等同于单一 T 法输出
-7. **RX Payload 上限：** 最大 24 字节（`DEBUG_RX_BUF_LEN`），超出长度的帧会被静默丢弃
-8. **RX 超时恢复：** 状态机在约 50ms（5 个 Balance_task 周期）内未收到新字节时自动复位，防止卡在半帧状态
-9. **无逐帧 ACK：** USART1 不为每条 RX 命令发送独立确认帧；上位机应通过周期性数据帧或查询参数帧观察执行结果
-10. **带宽估算：** 115200bps 下有效吞吐约 `11520B/s`；现有 `40B * 100Hz = 4000B/s`，新增目标控制命令按 `13B * 100Hz ≈ 1300B/s` 估算，总占用约 `5300B/s`，约为链路的 `46%`
-
----
-
-## 10. 源码位置索引
-
-| 文件 | 说明 |
-|------|------|
-| `HARDWARE/debug_uart.c` | 模块实现（DMA 初始化、帧组装、RX 状态机、命令执行） |
-| `HARDWARE/Inc/debug_uart.h` | 接口声明与协议常量定义 |
-| `BALANCE/balance_task.c` | TX 调用点（Balance_task 中 100Hz 调用 `Debug_SendDataFrame()`） |
-| `HARDWARE/uartx_callback.c` | RX 调用点（USART1 中断中调用 `Debug_ProcessRxByte()`） |
-| `USER/system.c` | 初始化调用（`Debug_UART_DMA_Init()`） |
+- 当前协议主要围绕 `AKM_CAR` 调试设计；其他底盘仍可使用基础参数命令，但 `0x03` 控制状态帧的 LADRC 含义仅对 AKM A/B 两轮成立。
+- `0x01` 与 `0x03` 在 AKM 模式下交替发送，所以单个帧 ID 的实际刷新率约为 `50Hz`。
+- 运行环境中没有参数持久化逻辑；通过调试串口下发的 PID/LADRC 参数重启后不会自动保存。
+- `SET_SPEED_AB` 与 `SET_PWM_AB` 互斥，后下发的模式会覆盖前一种模式。
+- 文档应以源码为准；若后续修改了 `DEBUG_*` 宏、帧长度或字段顺序，需要同步更新本文。

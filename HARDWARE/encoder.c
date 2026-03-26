@@ -1,4 +1,4 @@
-#include "encoder.h"
+﻿#include "encoder.h"
 
 //ͨ�ñ�������ʼ��,������Ķ�ʱ���Լ���Ӧ���ų�ʼ��Ϊ������ģʽ3
 static void Encoder_TI12_ModeInit(GPIO_TypeDef* GPIOx_1,uint16_t GPIO_PIN_1,GPIO_TypeDef* GPIOx_2,uint16_t GPIO_PIN_2,TIM_TypeDef* TIMx)
@@ -61,7 +61,7 @@ static void Encoder_TI12_ModeInit(GPIO_TypeDef* GPIOx_1,uint16_t GPIO_PIN_1,GPIO
 	
 	//�˲�ϵ������Ϊ0
     TIM_ICStructInit(&TIM_ICInitStructure);
-    TIM_ICInitStructure.TIM_ICFilter = 0;
+    TIM_ICInitStructure.TIM_ICFilter = 6;
     TIM_ICInit(TIMx, &TIM_ICInitStructure);
 	
 	//���TIM�ĸ��±�־λ
@@ -178,6 +178,7 @@ static volatile uint32_t tim6_high = 0;
 
 /* ISR 写, Get_Robot_FeedBack 读: 带方向的原始速度(m/s, 未除WheelDiff) */
 volatile float  encoder_T_velocity_raw[2] = {0.0f, 0.0f};
+volatile uint16_t encoder_T_short_dt_count[2] = {0u, 0u};
 
 /* 由 system.c 在 Robot_Select() 后赋值: Wheel_Circ / (Encoder_precision/4) */
 float enc_T_scale_base = 1.0f;
@@ -208,6 +209,9 @@ static void Encoder_T_Method_Update(uint8_t index, uint32_t now, float sign)
     dt = now - last_pulse_time[index];
 
     if (dt < T_METHOD_MIN_DT_US) {
+        if (encoder_T_short_dt_count[index] < 65535u) {
+            encoder_T_short_dt_count[index]++;
+        }
         return;
     }
 
