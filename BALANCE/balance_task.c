@@ -32,12 +32,27 @@ AlphaBeta_Filter_t AB_MotorB = {
 #define AKM_BLEND_M_SPEED_HIGH     0.28f
 #define AKM_BLEND_INV_SPAN         (1.0f / (AKM_BLEND_M_SPEED_HIGH - AKM_BLEND_T_SPEED_LOW))
 #define AKM_FEEDBACK_ZERO_EPS      0.001f
+
+/* DOB (Disturbance Observer) motor gain constants                      */
+/* DOB（扰动观测器）电机增益常量                                        */
+/* K = speed_at_calibration / pwm_at_calibration                       */
+#define K_MOTOR_A     0.000148f   /* (m/s)/PWM  标定: 0.4m/s @ 2694 PWM  */
+#define K_MOTOR_B     0.000131f   /* (m/s)/PWM  标定: 0.4m/s @ 3050 PWM  */
+#define DOB_ALPHA     0.05f       /* LPF bandwidth coefficient (~0.5Hz)   */
+                                  /* 扰动估计低通滤波系数                  */
+#define DOB_COMP_GAIN 0.5f        /* Compensation gain, tune 0->1         */
+                                  /* DOB补偿增益，从0逐步调大               */
+
 float akm_encoder_m_raw[2] = {0.0f, 0.0f};
 float akm_encoder_feedback_raw[2] = {0.0f, 0.0f};
 #endif
 
 #if defined AKM_CAR
-AKM_SERVO_UNLOCK_t ServoState;//舵机非自锁控制器
+AKM_SERVO_UNLOCK_t ServoState; /* 舵机非自锁控制器 */
+/* DOB persistent disturbance estimates (one per driven wheel)          */
+/* DOB扰动估计量，每个驱动轮各一个，跨控制周期持续更新                  */
+float disturbance_a = 0.0f;
+float disturbance_b = 0.0f;
 #endif
 /**************************************************************************
 Function: FreerTOS task, core motion control task
@@ -1053,28 +1068,80 @@ static void ResponseControl(void)
 //    //得到控制目标值，进行运动学分析
 //与小车控制相关
 	//根据滑轨的行程、不同的车型 来确定PI参数
-	if(fabsf(robot.MOTOR_A.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorA); robot.MOTOR_A.Output = 0;}
-	else robot.MOTOR_A.Output = Incremental_MOTOR( &PI_MotorA , robot.MOTOR_A.Encoder , robot.MOTOR_A.Target );
+	/* ---- Incremental PI + DOB reset-on-stop ---- */
+	/* ---- 增量式PI控制 + 停止时复位DOB状态      ---- */
+	if(fabsf(robot.MOTOR_A.Target) < 0.01f)
+	{
+		PI_Controller_Reset(&PI_MotorA);
+		robot.MOTOR_A.Output = 0;
+		disturbance_a = 0.0f; /* 停止时清除扰动估计 / Clear disturbance on stop */
+	}
+	else
+	{
+		robot.MOTOR_A.Output = Incremental_MOTOR( &PI_MotorA , robot.MOTOR_A.Encoder , robot.MOTOR_A.Target );
+	}
 
-	if(fabsf(robot.MOTOR_B.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorB); robot.MOTOR_B.Output = 0;}
-	else robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
-	
-	//The servo of the top of the line Ackermann model only requires PI control. \
-	The high-end model does not come with steering rail feedback
-	//仅顶配阿克曼车型的舵机需要PI控制.高配车型不带转向滑轨反馈.
+	if(fabsf(robot.MOTOR_B.Target) < 0.01f)
+	{
+		PI_Controller_Reset(&PI_MotorB);
+		robot.MOTOR_B.Output = 0;
+		disturbance_b = 0.0f; /* 停止时清除扰动估计 / Clear disturbance on stop */
+	}
+	else
+	{
+		robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
+	}
+
+	/* Servo PI — top-config Ackermann with rail feedback only          */
+	/* 舵机PI — 仅顶配阿克曼车型（带滑轨反馈）                          */
 	if( robot.type>=2 && robot.type!=9 && robot.type!=7 )
 	{
 		if(ServoState.UnLock==0)
-			robot.SERVO.Output   = Incremental_Servo( &PI_Servo  , robot.SERVO.Encoder  ,  robot.SERVO.Target + Akm_Servo.Bias );	
+			robot.SERVO.Output = Incremental_Servo( &PI_Servo , robot.SERVO.Encoder , robot.SERVO.Target + Akm_Servo.Bias );
 	}
-//	robot.MOTOR_A.Output = 2000;
-//	robot.MOTOR_B.Output = 2000;
-//与小车控制相关
-	      if( robot.type == 6 )                      Set_Pwm(0,0,0,0,0); //非标预留定制车,请根据电机型号设置输出值的正负方向
-	else if ( robot.type <= 1 || robot.type == 9)   Set_Pwm( robot.MOTOR_A.Output , robot.MOTOR_B.Output , 0 , 0 ,robot.SERVO.Output ); //高配阿克曼-MD36电机
-	else if ( robot.type >= 2 && robot.type <= 5 )  Set_Pwm(-robot.MOTOR_A.Output ,-robot.MOTOR_B.Output , 0 , 0 ,robot.SERVO.Output ); //顶配阿克曼-MD60电机
-	else if ( robot.type == 7 )                     Set_Pwm( 0 , 0 , 0 , 0 , robot.SERVO.Output ); //安装测试专用.舵机开环控制
-	else if ( robot.type == 8 )                     Set_Pwm( 0 , 0 , 0 , 0 , 1500 ); //安装测试专用.让舵机保持在中间位置校准
+
+	/* ---- Disturbance Observer (DOB) ---- */
+	/* ---- 扰动观测器（DOB）            ---- */
+	/* Principle: nominal_pwm = encoder_speed / K_MOTOR (motor inverse model)    */
+	/* The gap between actual PI output and nominal PWM is the disturbance.      */
+	/* A slow LPF (DOB_ALPHA~0.05, ~0.5Hz) tracks slip-type slow disturbances.  */
+	/* 原理：标称PWM = 编码器速度 / 电机增益（电机逆模型）                        */
+	/* 实际PI输出与标称PWM之差即为扰动。低通滤波器跟踪慢变打滑扰动（约0.5Hz）。   */
+	{
+		float nominal_pwm_a, nominal_pwm_b;
+		float observed_dist_a, observed_dist_b;
+		int   pwm_out_a, pwm_out_b;
+
+		/* Estimate disturbance via motor inverse model + LPF            */
+		/* 用电机逆模型估计扰动，经低通滤波器平滑                         */
+		nominal_pwm_a   = robot.MOTOR_A.Encoder / K_MOTOR_A;
+		observed_dist_a = (float)robot.MOTOR_A.Output - nominal_pwm_a;
+		disturbance_a   = (1.0f - DOB_ALPHA) * disturbance_a + DOB_ALPHA * observed_dist_a;
+
+		nominal_pwm_b   = robot.MOTOR_B.Encoder / K_MOTOR_B;
+		observed_dist_b = (float)robot.MOTOR_B.Output - nominal_pwm_b;
+		disturbance_b   = (1.0f - DOB_ALPHA) * disturbance_b + DOB_ALPHA * observed_dist_b;
+
+		/* Compensated PWM = PI output - disturbance x gain              */
+		/* 补偿后PWM = PI输出 - 扰动估计 x 补偿增益                       */
+		pwm_out_a = (int)( (float)robot.MOTOR_A.Output - disturbance_a * DOB_COMP_GAIN );
+		pwm_out_b = (int)( (float)robot.MOTOR_B.Output - disturbance_b * DOB_COMP_GAIN );
+
+		/* Clamp to valid PWM range                                      */
+		/* 对补偿后PWM进行限幅                                            */
+		if( pwm_out_a >  FULL_DUTYCYCLE ) pwm_out_a =  FULL_DUTYCYCLE;
+		if( pwm_out_a < -FULL_DUTYCYCLE ) pwm_out_a = -FULL_DUTYCYCLE;
+		if( pwm_out_b >  FULL_DUTYCYCLE ) pwm_out_b =  FULL_DUTYCYCLE;
+		if( pwm_out_b < -FULL_DUTYCYCLE ) pwm_out_b = -FULL_DUTYCYCLE;
+
+		/* Apply to actuators — sign polarity per robot.type             */
+		/* 驱动执行机构，极性依robot.type区分                              */
+		      if( robot.type == 6 )                     Set_Pwm( 0        ,  0        , 0,0, robot.SERVO.Output ); //非标预留定制车,请根据电机型号设置输出值的正负方向
+		else if( robot.type <= 1 || robot.type == 9)   Set_Pwm( pwm_out_a,  pwm_out_b, 0,0, robot.SERVO.Output ); //高配阿克曼-MD36电机
+		else if( robot.type >= 2 && robot.type <= 5)   Set_Pwm(-pwm_out_a, -pwm_out_b, 0,0, robot.SERVO.Output ); //顶配阿克曼-MD60电机
+		else if( robot.type == 7 )                     Set_Pwm( 0        ,  0        , 0,0, robot.SERVO.Output ); //安装测试专用.舵机开环控制
+		else if( robot.type == 8 )                     Set_Pwm( 0        ,  0        , 0,0, 1500               ); //安装测试专用.让舵机保持在中间位置校准
+	}
 	
 	#elif defined DIFF_CAR
 	

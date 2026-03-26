@@ -4,6 +4,13 @@
 #include "encoder.h"
 #include <string.h>
 
+#if defined AKM_CAR
+/* DOB disturbance estimates defined in balance_task.c */
+/* DOB扰动估计变量，定义于balance_task.c               */
+extern float disturbance_a;
+extern float disturbance_b;
+#endif
+
 /*===========================================================================
  * 调试串口模块 - UART1 DMA发送 + 中断接收
  *
@@ -192,7 +199,7 @@ void DMA2_Stream7_IRQHandler(void)
 /*===========================================================================
  * TX数据帧组装与发送 (从Balance_task 100Hz调用)
  *
- * 帧格式 (40字节):
+ * 帧格式 (48字节):
  *   [0-1]   0xAA 0x55
  *   [2]     FrameID = 0x01
  *   [3-6]   t_raw_A       (float, T法原始速度 m/s)
@@ -203,9 +210,11 @@ void DMA2_Stream7_IRQHandler(void)
  *   [23-26] final_B       (float, 融合后反馈速度 m/s)
  *   [27-30] target_A      (float, 目标速度 m/s)
  *   [31-34] target_B      (float, 目标速度 m/s)
- *   [35-36] output_A      (int16, PID输出 PWM)
- *   [37-38] output_B      (int16, PID输出 PWM)
- *   [39]    checksum      (XOR of bytes 0..38)
+ *   [35-36] output_A      (int16, PI原始输出 PWM)
+ *   [37-38] output_B      (int16, PI原始输出 PWM)
+ *   [39-42] disturbance_A (float, DOB扰动估计 AKM only, else 0.0f)
+ *   [43-46] disturbance_B (float, DOB扰动估计 AKM only, else 0.0f)
+ *   [47]    checksum      (XOR of bytes 0..46)
  *===========================================================================*/
 void Debug_SendDataFrame(void)
 {
@@ -249,15 +258,24 @@ void Debug_SendDataFrame(void)
 	pack_float(&debug_tx_buf[27], robot.MOTOR_A.Target);
 	pack_float(&debug_tx_buf[31], robot.MOTOR_B.Target);
 
-	/* PID输出PWM */
+	/* PI原始输出PWM */
 	pack_int16(&debug_tx_buf[35], (int16_t)robot.MOTOR_A.Output);
 	pack_int16(&debug_tx_buf[37], (int16_t)robot.MOTOR_B.Output);
 
+	/* DOB扰动估计值 / DOB disturbance estimates */
+	#if defined AKM_CAR
+		pack_float(&debug_tx_buf[39], disturbance_a);
+		pack_float(&debug_tx_buf[43], disturbance_b);
+	#else
+		pack_float(&debug_tx_buf[39], 0.0f);
+		pack_float(&debug_tx_buf[43], 0.0f);
+	#endif
+
 	/* XOR校验 */
 	xor_sum = 0;
-	for (i = 0; i < 39; i++)
+	for (i = 0; i < 47; i++)
 		xor_sum ^= debug_tx_buf[i];
-	debug_tx_buf[39] = xor_sum;
+	debug_tx_buf[47] = xor_sum;
 
 	/* 触发DMA发送 */
 	dma_start_tx(DEBUG_DATA_FRAME_LEN);

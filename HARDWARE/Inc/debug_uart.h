@@ -34,7 +34,7 @@
 #define DEBUG_CMD_QUERY      0x30  /* 查询当前参数 */
 
 /* 帧长度 */
-#define DEBUG_DATA_FRAME_LEN  40  /* TX数据帧总长 */
+#define DEBUG_DATA_FRAME_LEN  48  /* TX数据帧总长 (含DOB扰动估计) */
 #define DEBUG_PARAM_FRAME_LEN 40  /* TX参数帧总长 */
 #define DEBUG_RX_BUF_LEN      24  /* RX接收缓冲区(最长payload=12B + 开销) */
 
