@@ -37,8 +37,8 @@ AlphaBeta_Filter_t AB_MotorB = {
 #define AKM_AFC_MIN_FEEDBACK_SPEED 0.08f
 #define AKM_AFC_RESET_SPEED        0.03f
 #define AKM_AFC_LMS_MU             20.0f
-#define AKM_AFC_LEAK               0.9995f
-#define AKM_AFC_MAX_PWM            300.0f
+#define AKM_AFC_LEAK               0.999f
+#define AKM_AFC_MAX_PWM            2000.0f
 #define AKM_AFC_PHASE_WRAP         (2.0f * PI)
 
 typedef struct{
@@ -358,7 +358,7 @@ static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,f
 
 	if( state == NULL ) return base_pwm;
 
-	wheel_circ = robot.HardwareParam.Wheel_Circ;
+	wheel_circ = robot.HardwareParam.Wheel_Circ / 2.0f;
 	if( wheel_circ < 0.001f )
 	{
 		AKM_AFC_Reset(state);
@@ -394,6 +394,24 @@ static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,f
 	return (int)compensated;
 }
 #endif
+
+float Debug_GetAkmAfcOutputA(void)
+{
+	#if defined AKM_CAR
+		return afc_motor_a.output;
+	#else
+		return 0.0f;
+	#endif
+}
+
+float Debug_GetAkmAfcOutputB(void)
+{
+	#if defined AKM_CAR
+		return afc_motor_b.output;
+	#else
+		return 0.0f;
+	#endif
+}
 
 void Set_UartTargetSpeed(float speed_a,float speed_b)
 {

@@ -7,12 +7,12 @@
 /*===========================================================================
  * 调试串口模块 - UART1 DMA发送 + 中断接收
  *
- * TX: DMA2_Stream7_Channel4 → USART1_TX, 100Hz数据帧(40B) + 按需参数帧(40B)
+ * TX: DMA2_Stream7_Channel4 → USART1_TX, 100Hz数据帧(48B) + 按需参数帧(40B)
  * RX: USART1 RXNE中断 → 状态机解析命令帧
  *===========================================================================*/
 
 /* ---- TX缓冲区与DMA状态 ---- */
-static uint8_t debug_tx_buf[64];       /* 发送缓冲区(最长帧40字节,预留安全空间) */
+static uint8_t debug_tx_buf[64];       /* 发送缓冲区(最长帧48字节,预留安全空间) */
 static volatile uint8_t dma_busy = 0;  /* DMA传输中标志 */
 static volatile uint8_t param_reply_pending = 0; /* 参数回复请求标志 */
 
@@ -192,7 +192,7 @@ void DMA2_Stream7_IRQHandler(void)
 /*===========================================================================
  * TX数据帧组装与发送 (从Balance_task 100Hz调用)
  *
- * 帧格式 (40字节):
+ * 帧格式 (48字节):
  *   [0-1]   0xAA 0x55
  *   [2]     FrameID = 0x01
  *   [3-6]   t_raw_A       (float, T法原始速度 m/s)
@@ -205,7 +205,9 @@ void DMA2_Stream7_IRQHandler(void)
  *   [31-34] target_B      (float, 目标速度 m/s)
  *   [35-36] output_A      (int16, PID输出 PWM)
  *   [37-38] output_B      (int16, PID输出 PWM)
- *   [39]    checksum      (XOR of bytes 0..38)
+ *   [39-42] afc_output_A  (float, AFC增量 PWM)
+ *   [43-46] afc_output_B  (float, AFC增量 PWM)
+ *   [47]    checksum      (XOR of bytes 0..46)
  *===========================================================================*/
 void Debug_SendDataFrame(void)
 {
@@ -253,11 +255,15 @@ void Debug_SendDataFrame(void)
 	pack_int16(&debug_tx_buf[35], (int16_t)robot.MOTOR_A.Output);
 	pack_int16(&debug_tx_buf[37], (int16_t)robot.MOTOR_B.Output);
 
+	/* AFC增量PWM */
+	pack_float(&debug_tx_buf[39], Debug_GetAkmAfcOutputA());
+	pack_float(&debug_tx_buf[43], Debug_GetAkmAfcOutputB());
+
 	/* XOR校验 */
 	xor_sum = 0;
-	for (i = 0; i < 39; i++)
+	for (i = 0; i < 47; i++)
 		xor_sum ^= debug_tx_buf[i];
-	debug_tx_buf[39] = xor_sum;
+	debug_tx_buf[47] = xor_sum;
 
 	/* 触发DMA发送 */
 	dma_start_tx(DEBUG_DATA_FRAME_LEN);

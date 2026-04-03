@@ -66,3 +66,6 @@ Thumbs.db
 
 # Claude AI settings
 .claude/
+
+# PPT generation artifacts
+docs/ppt/

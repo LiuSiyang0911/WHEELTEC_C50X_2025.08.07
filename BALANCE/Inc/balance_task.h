@@ -128,6 +128,8 @@ void ROBOT_CONTROL_t_Init(ROBOT_CONTROL_t* p);
 void  Set_Robot_PI_Param(float kp,float ki,float kd); //PI控制器设置参数
 void Set_UartTargetSpeed(float speed_a,float speed_b);
 void Set_UartTargetPwm(int16_t pwm_a,int16_t pwm_b);
+float Debug_GetAkmAfcOutputA(void);
+float Debug_GetAkmAfcOutputB(void);
 float rad_to_angle(const float rad);  //角度与弧度互转
 float angle_to_rad(const float angle);//角度与弧度互转
 float Akm_Vz_to_Angle(float Vx,float Vz);//将阿克曼的目标速度转换为左前轮转角
