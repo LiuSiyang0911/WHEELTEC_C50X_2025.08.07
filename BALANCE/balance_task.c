@@ -36,7 +36,8 @@ AlphaBeta_Filter_t AB_MotorB = {
 #define AKM_AFC_MIN_TARGET_SPEED   0.10f
 #define AKM_AFC_MIN_FEEDBACK_SPEED 0.08f
 #define AKM_AFC_RESET_SPEED        0.03f
-#define AKM_AFC_LMS_MU             20.0f
+#define AKM_AFC_LMS_MU_A           20.0f
+#define AKM_AFC_LMS_MU_B           10.0f
 #define AKM_AFC_LEAK               0.999f
 #define AKM_AFC_MAX_PWM            2000.0f
 #define AKM_AFC_PHASE_WRAP         (2.0f * PI)
@@ -46,16 +47,17 @@ typedef struct{
 	float sin_gain;
 	float cos_gain;
 	float output;
+	float lms_mu;
 }AKM_AFC_STATE_t;
 
 float akm_encoder_m_raw[2] = {0.0f, 0.0f};
 float akm_encoder_feedback_raw[2] = {0.0f, 0.0f};
-static AKM_AFC_STATE_t afc_motor_a = {0};
-static AKM_AFC_STATE_t afc_motor_b = {0};
+static AKM_AFC_STATE_t afc_motor_a = {.lms_mu = AKM_AFC_LMS_MU_A};
+static AKM_AFC_STATE_t afc_motor_b = {.lms_mu = AKM_AFC_LMS_MU_B};
 
 static void AKM_AFC_Reset(AKM_AFC_STATE_t *state);
 static void AKM_AFC_ResetAll(void);
-static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback);
+static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback,float phase_feedback);
 #endif
 
 #if defined AKM_CAR
@@ -347,7 +349,7 @@ static void AKM_AFC_ResetAll(void)
 	AKM_AFC_Reset(&afc_motor_b);
 }
 
-static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback)
+static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback,float phase_feedback)
 {
 	float wheel_circ;
 	float sin_ref;
@@ -374,7 +376,7 @@ static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,f
 		return base_pwm;
 	}
 
-	phase_step = AKM_AFC_PHASE_WRAP * feedback * AKM_AFC_DT / wheel_circ;
+	phase_step = AKM_AFC_PHASE_WRAP * phase_feedback * AKM_AFC_DT / wheel_circ;
 	state->phase += phase_step;
 	while( state->phase >= AKM_AFC_PHASE_WRAP ) state->phase -= AKM_AFC_PHASE_WRAP;
 	while( state->phase <= -AKM_AFC_PHASE_WRAP ) state->phase += AKM_AFC_PHASE_WRAP;
@@ -383,8 +385,8 @@ static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,f
 	cos_ref = cosf(state->phase);
 	error = target - feedback;
 
-	state->sin_gain = state->sin_gain * AKM_AFC_LEAK + AKM_AFC_LMS_MU * error * sin_ref;
-	state->cos_gain = state->cos_gain * AKM_AFC_LEAK + AKM_AFC_LMS_MU * error * cos_ref;
+	state->sin_gain = state->sin_gain * AKM_AFC_LEAK + state->lms_mu * error * sin_ref;
+	state->cos_gain = state->cos_gain * AKM_AFC_LEAK + state->lms_mu * error * cos_ref;
 	state->output = state->sin_gain * sin_ref + state->cos_gain * cos_ref;
 	state->output = target_limit_float(state->output,-AKM_AFC_MAX_PWM,AKM_AFC_MAX_PWM);
 
@@ -1170,10 +1172,11 @@ static void ResponseControl(void)
 	else robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
 
 	if( fabsf(robot.MOTOR_A.Target) < 0.01f ) AKM_AFC_Reset(&afc_motor_a);
-	else robot.MOTOR_A.Output = AKM_AFC_Compensate(&afc_motor_a,robot.MOTOR_A.Output,robot.MOTOR_A.Target,robot.MOTOR_A.Encoder);
+	else robot.MOTOR_A.Output = AKM_AFC_Compensate(&afc_motor_a,robot.MOTOR_A.Output,robot.MOTOR_A.Target,robot.MOTOR_A.Encoder,robot.MOTOR_A.Encoder);
 
 	if( fabsf(robot.MOTOR_B.Target) < 0.01f ) AKM_AFC_Reset(&afc_motor_b);
-	else robot.MOTOR_B.Output = AKM_AFC_Compensate(&afc_motor_b,robot.MOTOR_B.Output,robot.MOTOR_B.Target,robot.MOTOR_B.Encoder);
+	// B轮保留原始速度符号用于误差与换向判定,仅翻转AFC相位累积方向.
+	else robot.MOTOR_B.Output = AKM_AFC_Compensate(&afc_motor_b,robot.MOTOR_B.Output,robot.MOTOR_B.Target,robot.MOTOR_B.Encoder,robot.MOTOR_B.Encoder);
 	
 	//The servo of the top of the line Ackermann model only requires PI control. \
 	The high-end model does not come with steering rail feedback
