@@ -16,6 +16,32 @@ WHEELTEC C50X 多底盘机器人固件，目标芯片 **STM32F407VE**（Cortex-M
 
 **无 Makefile、无命令行构建工具**。不要尝试 `make`、`cmake`、`gcc` 等命令。
 
+### 已验证的命令行编译方式
+
+可直接调用 Keil `UV4.exe` 执行批量编译。当前仓库已验证可用的命令：
+
+```powershell
+D:\Keil_v5\UV4\UV4.exe -b D:\radar\car\WHEELTEC_C50X_2025.08.07\USER\WHEELTEC.uvprojx -j0 -t Akm_Car -o D:\radar\car\WHEELTEC_C50X_2025.08.07\USER\.vscode\uv4.log
+```
+
+说明：
+
+- `-b`：批量编译工程
+- `-j0`：由 Keil 自行决定并行编译任务数
+- `-t Akm_Car`：选择阿克曼目标
+- `-o ...\\uv4.log`：将编译日志输出到 VS Code 使用的日志文件
+
+编译完成后检查 `USER/.vscode/uv4.log` 末尾是否出现：
+
+- `"..\\OBJ\\Akm_Car.axf" - 0 Error(s), 0 Warning(s).`
+- `Build Time Elapsed: ...`
+
+注意：
+
+- 该命令依赖本机已安装 Keil 5，且路径为 `D:\Keil_v5\UV4\UV4.exe`
+- 工程中的 `Before Build` / `After Build` 批处理也会随之执行
+- 若在沙箱或受限环境中运行，可能需要额外授权访问 `D:\Keil_v5\` 与工程目录
+
 ### 构建目标
 
 选择 Keil 目标 `Akm_Car`，预处理器定义 `AKM_CAR`。

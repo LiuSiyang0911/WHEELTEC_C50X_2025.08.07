@@ -32,8 +32,32 @@ AlphaBeta_Filter_t AB_MotorB = {
 #define AKM_BLEND_M_SPEED_HIGH     0.28f
 #define AKM_BLEND_INV_SPAN         (1.0f / (AKM_BLEND_M_SPEED_HIGH - AKM_BLEND_T_SPEED_LOW))
 #define AKM_FEEDBACK_ZERO_EPS      0.001f
+#define AKM_AFC_DT                 (1.0f / (float)BALANCE_TASK_RATE)
+#define AKM_AFC_MIN_TARGET_SPEED   0.10f
+#define AKM_AFC_MIN_FEEDBACK_SPEED 0.08f
+#define AKM_AFC_RESET_SPEED        0.03f
+#define AKM_AFC_LMS_MU_A           20.0f
+#define AKM_AFC_LMS_MU_B           10.0f
+#define AKM_AFC_LEAK               0.9995f
+#define AKM_AFC_MAX_PWM            2000.0f
+#define AKM_AFC_PHASE_WRAP         (2.0f * PI)
+
+typedef struct{
+	float phase;
+	float sin_gain;
+	float cos_gain;
+	float output;
+	float lms_mu;
+}AKM_AFC_STATE_t;
+
 float akm_encoder_m_raw[2] = {0.0f, 0.0f};
 float akm_encoder_feedback_raw[2] = {0.0f, 0.0f};
+static AKM_AFC_STATE_t afc_motor_a = {.lms_mu = AKM_AFC_LMS_MU_A};
+static AKM_AFC_STATE_t afc_motor_b = {.lms_mu = AKM_AFC_LMS_MU_B};
+
+static void AKM_AFC_Reset(AKM_AFC_STATE_t *state);
+static void AKM_AFC_ResetAll(void);
+static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback,float phase_feedback);
 #endif
 
 #if defined AKM_CAR
@@ -302,6 +326,93 @@ static void UartTarget_ClearMotionState(void)
 	robot.MOTOR_B.Output = 0;
 	robot.MOTOR_C.Output = 0;
 	robot.MOTOR_D.Output = 0;
+
+	#if defined AKM_CAR
+		AKM_AFC_ResetAll();
+	#endif
+}
+
+#if defined AKM_CAR
+static void AKM_AFC_Reset(AKM_AFC_STATE_t *state)
+{
+	if( state == NULL ) return;
+
+	state->phase = 0.0f;
+	state->sin_gain = 0.0f;
+	state->cos_gain = 0.0f;
+	state->output = 0.0f;
+}
+
+static void AKM_AFC_ResetAll(void)
+{
+	AKM_AFC_Reset(&afc_motor_a);
+	AKM_AFC_Reset(&afc_motor_b);
+}
+
+static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback,float phase_feedback)
+{
+	float wheel_circ;
+	float sin_ref;
+	float cos_ref;
+	float error;
+	float phase_step;
+	float compensated;
+
+	if( state == NULL ) return base_pwm;
+
+	wheel_circ = robot.HardwareParam.Wheel_Circ / 2.0f;
+	if( wheel_circ < 0.001f )
+	{
+		AKM_AFC_Reset(state);
+		return base_pwm;
+	}
+
+	// 仅在稳定的轮速闭环阶段学习,避免启停与换向时误学习
+	if( fabsf(target) < AKM_AFC_MIN_TARGET_SPEED || fabsf(feedback) < AKM_AFC_MIN_FEEDBACK_SPEED ||
+		(fabsf(target) < AKM_AFC_RESET_SPEED && fabsf(feedback) < AKM_AFC_RESET_SPEED) ||
+		(target * feedback) < -0.0025f )
+	{
+		AKM_AFC_Reset(state);
+		return base_pwm;
+	}
+
+	phase_step = AKM_AFC_PHASE_WRAP * phase_feedback * AKM_AFC_DT / wheel_circ;
+	state->phase += phase_step;
+	while( state->phase >= AKM_AFC_PHASE_WRAP ) state->phase -= AKM_AFC_PHASE_WRAP;
+	while( state->phase <= -AKM_AFC_PHASE_WRAP ) state->phase += AKM_AFC_PHASE_WRAP;
+
+	sin_ref = sinf(state->phase);
+	cos_ref = cosf(state->phase);
+	error = target - feedback;
+
+	state->sin_gain = state->sin_gain * AKM_AFC_LEAK + state->lms_mu * error * sin_ref;
+	state->cos_gain = state->cos_gain * AKM_AFC_LEAK + state->lms_mu * error * cos_ref;
+	state->output = state->sin_gain * sin_ref + state->cos_gain * cos_ref;
+	state->output = target_limit_float(state->output,-AKM_AFC_MAX_PWM,AKM_AFC_MAX_PWM);
+
+	compensated = (float)base_pwm + state->output;
+	compensated = target_limit_float(compensated,-FULL_DUTYCYCLE,FULL_DUTYCYCLE);
+
+	return (int)compensated;
+}
+#endif
+
+float Debug_GetAkmAfcOutputA(void)
+{
+	#if defined AKM_CAR
+		return afc_motor_a.output;
+	#else
+		return 0.0f;
+	#endif
+}
+
+float Debug_GetAkmAfcOutputB(void)
+{
+	#if defined AKM_CAR
+		return afc_motor_b.output;
+	#else
+		return 0.0f;
+	#endif
 }
 
 void Set_UartTargetSpeed(float speed_a,float speed_b)
@@ -1046,6 +1157,7 @@ static void ResponseControl(void)
 	#if defined AKM_CAR
 	if( robot_control.uart_target_mode == UART_TARGET_MODE_PWM && robot_control.uart_target_valid )
 	{
+		AKM_AFC_ResetAll();
 		Apply_AKM_UartPwmOutput(robot.MOTOR_A.Output,robot.MOTOR_B.Output);
 		return;
 	}
@@ -1058,6 +1170,13 @@ static void ResponseControl(void)
 
 	if(fabsf(robot.MOTOR_B.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorB); robot.MOTOR_B.Output = 0;}
 	else robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
+
+	if( fabsf(robot.MOTOR_A.Target) < 0.01f ) AKM_AFC_Reset(&afc_motor_a);
+	else robot.MOTOR_A.Output = AKM_AFC_Compensate(&afc_motor_a,robot.MOTOR_A.Output,robot.MOTOR_A.Target,robot.MOTOR_A.Encoder,robot.MOTOR_A.Encoder);
+
+	if( fabsf(robot.MOTOR_B.Target) < 0.01f ) AKM_AFC_Reset(&afc_motor_b);
+	// B轮保留原始速度符号用于误差与换向判定,仅翻转AFC相位累积方向.
+	else robot.MOTOR_B.Output = AKM_AFC_Compensate(&afc_motor_b,robot.MOTOR_B.Output,robot.MOTOR_B.Target,robot.MOTOR_B.Encoder,robot.MOTOR_B.Encoder);
 	
 	//The servo of the top of the line Ackermann model only requires PI control. \
 	The high-end model does not come with steering rail feedback
@@ -1141,6 +1260,9 @@ static void UnResponseControl(uint8_t mode)
 		PI_Controller_Reset(&PI_MotorB);
 		PI_Controller_Reset(&PI_MotorC);
 		PI_Controller_Reset(&PI_MotorD);
+		#if defined AKM_CAR
+			AKM_AFC_ResetAll();
+		#endif
 		
 		//发送0停止电机的转动
 		Set_Pwm( 0 , 0 , 0 , 0 , 0 );
@@ -1150,6 +1272,9 @@ static void UnResponseControl(uint8_t mode)
 	else if( mode==LOCK )
 	{
 		UartTarget_ClearMotionState();
+		#if defined AKM_CAR
+			AKM_AFC_ResetAll();
+		#endif
 		Set_Pwm( 0 , 0 , 0 , 0 , 0 );
 	}
 }
