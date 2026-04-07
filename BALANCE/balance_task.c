@@ -38,7 +38,7 @@ AlphaBeta_Filter_t AB_MotorB = {
 #define AKM_AFC_RESET_SPEED        0.03f
 #define AKM_AFC_LMS_MU_A           20.0f
 #define AKM_AFC_LMS_MU_B           10.0f
-#define AKM_AFC_LEAK               0.999f
+#define AKM_AFC_LEAK               0.9995f
 #define AKM_AFC_MAX_PWM            2000.0f
 #define AKM_AFC_PHASE_WRAP         (2.0f * PI)
 

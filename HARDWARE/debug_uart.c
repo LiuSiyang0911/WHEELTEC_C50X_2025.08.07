@@ -247,9 +247,17 @@ void Debug_SendDataFrame(void)
 	pack_float(&debug_tx_buf[19], robot.MOTOR_A.Encoder);
 	pack_float(&debug_tx_buf[23], robot.MOTOR_B.Encoder);
 
-	/* 目标速度 */
-	pack_float(&debug_tx_buf[27], robot.MOTOR_A.Target);
-	pack_float(&debug_tx_buf[31], robot.MOTOR_B.Target);
+	/* PWM模式下将目标字段清零,避免上位机速度图量程被PWM值拉伸 */
+	if (robot_control.uart_target_mode == UART_TARGET_MODE_PWM)
+	{
+		pack_float(&debug_tx_buf[27], 0.0f);
+		pack_float(&debug_tx_buf[31], 0.0f);
+	}
+	else
+	{
+		pack_float(&debug_tx_buf[27], robot.MOTOR_A.Target);
+		pack_float(&debug_tx_buf[31], robot.MOTOR_B.Target);
+	}
 
 	/* PID输出PWM */
 	pack_int16(&debug_tx_buf[35], (int16_t)robot.MOTOR_A.Output);
