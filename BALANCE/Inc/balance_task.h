@@ -158,6 +158,10 @@ static void UnResponseControl(uint8_t mode);
 static void UartTarget_ClearMotionState(void);
 static void Apply_AKM_UartTargetFromApp(void);
 static void Apply_AKM_UartPwmOutput(int pwm_a,int pwm_b);
+#if defined AKM_CAR
+static uint8_t AKM_IsUartPwmForwardAfcTest(void);
+static void Apply_AKM_UartPwmForwardAfc(void);
+#endif
 static void Set_Pwm(int m_a,int m_b,int m_c,int m_d,int servo);
 static u8 Turn_Off(void);
 static void Get_APPcmd(void);

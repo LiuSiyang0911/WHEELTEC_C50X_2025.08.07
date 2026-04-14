@@ -110,7 +110,7 @@
 > - `final_A/B` 为当前闭环实际使用的速度反馈，已包含 T/M 融合与一阶 Kalman 平滑。
 > - `afc_output_A/B` 为 AFC 单独输出的增量 PWM，用于观察学习结果，不包含 PI 本体输出。
 > - 在 `SPEED` 模式下，`target_A/B` 单位为 m/s，`output_A/B` 为 PI 与 AFC 叠加后的最终 PWM 输出。
-> - 在 `PWM` 模式下，`target_A/B` 直接表示当前动作映射后的目标 PWM 值，`output_A/B` 为实际下发的 PWM 输出；`afc_output_A/B` 会复位为 `0.0f`。
+> - 在 `PWM` 模式下，为避免上位机速度图量程被 PWM 值拉伸，`target_A/B` 在数据帧中固定清零，`output_A/B` 为实际下发的 PWM 输出；默认情况下 `afc_output_A/B` 会复位为 `0.0f`，但 AKM 直行前进固定 PWM AFC 测试场景下会输出学习到的增量 PWM。
 
 ---
 
