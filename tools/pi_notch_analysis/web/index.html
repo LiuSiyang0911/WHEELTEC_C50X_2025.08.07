@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PI Notch Analysis</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <p class="eyebrow">Local Interactive Analysis</p>
+      <h1>PI Notch Analysis</h1>
+      <p class="lede">Upload a debug CSV, sweep notch gains, and inspect disturbance suppression in time and frequency domains.</p>
+    </section>
+
+    <section class="panel controls">
+      <form id="analysis-form">
+        <label class="file-input">
+          <span>CSV File</span>
+          <input id="file" name="file" type="file" accept=".csv" required>
+        </label>
+        <div class="grid">
+          <label><span>Motor</span><select name="motor"><option value="a">Motor A</option><option value="b">Motor B</option></select></label>
+          <label><span>Wheel Diameter (m)</span><input name="wheel_diameter" type="number" step="0.001" value="0.125"></label>
+          <label><span>Kp</span><input name="kp" type="number" step="0.1" value="300"></label>
+          <label><span>Ki</span><input name="ki" type="number" step="0.1" value="300"></label>
+          <label><span>Kd</span><input name="kd" type="number" step="0.1" value="0"></label>
+          <label><span>Settle Time (s)</span><input name="settle_time" type="number" step="0.1" value="5"></label>
+          <label><span>Tail Time (s)</span><input name="tail_time" type="number" step="0.1" value="5"></label>
+          <label class="wide"><span>Candidate Gains</span><input name="gains" type="text" value="0.01,0.015,0.02,0.025,0.03,0.04,0.05,0.08"></label>
+        </div>
+        <div class="subsection">
+          <h3>Speed Notch Filter</h3>
+          <div class="grid">
+            <label class="toggle">
+              <span>Enable Speed Notch</span>
+              <input name="speed_notch_enabled" type="checkbox" value="true">
+            </label>
+            <label><span>Center Frequency (Hz)</span><input name="speed_notch_freq_hz" type="number" step="0.01" value="0.66"></label>
+            <label><span>Q</span><input name="speed_notch_q" type="number" step="0.1" value="6.0"></label>
+          </div>
+        </div>
+        <div class="subsection">
+          <h3>Visible Traces</h3>
+          <div class="trace-grid">
+            <label><input type="checkbox" data-trace="feedback" checked> Feedback</label>
+            <label><input type="checkbox" data-trace="notched_feedback" checked> Notched Feedback</label>
+            <label><input type="checkbox" data-trace="raw_error" checked> Raw Error</label>
+            <label><input type="checkbox" data-trace="filtered_error" checked> Notched Error</label>
+            <label><input type="checkbox" data-trace="raw_pi" checked> PI Output (Raw Error)</label>
+            <label><input type="checkbox" data-trace="filtered_pi" checked> PI Output (Notched Error)</label>
+            <label><input type="checkbox" data-spectrum="feedback" checked> Feedback Spectrum</label>
+            <label><input type="checkbox" data-spectrum="notched_feedback" checked> Notched Feedback Spectrum</label>
+            <label><input type="checkbox" data-spectrum="error" checked> Error Spectrum</label>
+          </div>
+        </div>
+        <button id="analyze-button" type="submit">Analyze</button>
+        <p id="status" class="status">Upload a CSV to begin.</p>
+      </form>
+    </section>
+
+    <section class="panel summary">
+      <h2>Summary</h2>
+      <div id="summary-cards" class="cards empty">No analysis yet.</div>
+    </section>
+
+    <section class="charts">
+      <article class="panel chart-panel">
+        <h2>Speed / Error / PI Output</h2>
+        <div id="time-series-chart" class="chart"></div>
+      </article>
+      <article class="panel chart-panel">
+        <h2>Error Spectrum</h2>
+        <div id="spectrum-chart" class="chart"></div>
+      </article>
+      <article class="panel chart-panel">
+        <h2>Gain Sweep</h2>
+        <div id="gain-chart" class="chart"></div>
+      </article>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

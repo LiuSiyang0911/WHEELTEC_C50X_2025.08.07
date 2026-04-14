@@ -37,10 +37,11 @@ AlphaBeta_Filter_t AB_MotorB = {
 #define AKM_AFC_MIN_FEEDBACK_SPEED 0.08f
 #define AKM_AFC_RESET_SPEED        0.03f
 #define AKM_AFC_LMS_MU_A           20.0f
-#define AKM_AFC_LMS_MU_B           10.0f
+#define AKM_AFC_LMS_MU_B           50.0f
 #define AKM_AFC_LEAK               0.9995f
 #define AKM_AFC_MAX_PWM            2000.0f
 #define AKM_AFC_PHASE_WRAP         (2.0f * PI)
+#define AKM_PI_NOTCH_LPF_GAIN      0.02f
 
 typedef struct{
 	float phase;
@@ -50,14 +51,26 @@ typedef struct{
 	float lms_mu;
 }AKM_AFC_STATE_t;
 
+typedef struct{
+	float phase;
+	float sin_state;
+	float cos_state;
+	float output;
+}AKM_PI_NOTCH_STATE_t;
+
 float akm_encoder_m_raw[2] = {0.0f, 0.0f};
 float akm_encoder_feedback_raw[2] = {0.0f, 0.0f};
 static AKM_AFC_STATE_t afc_motor_a = {.lms_mu = AKM_AFC_LMS_MU_A};
 static AKM_AFC_STATE_t afc_motor_b = {.lms_mu = AKM_AFC_LMS_MU_B};
+static AKM_PI_NOTCH_STATE_t pi_notch_motor_a;
+static AKM_PI_NOTCH_STATE_t pi_notch_motor_b;
 
 static void AKM_AFC_Reset(AKM_AFC_STATE_t *state);
 static void AKM_AFC_ResetAll(void);
 static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback,float phase_feedback);
+static void AKM_PI_Notch_Reset(AKM_PI_NOTCH_STATE_t *state);
+static void AKM_PI_Notch_ResetAll(void);
+static float AKM_PI_Notch_Filter(AKM_PI_NOTCH_STATE_t *state,float error,float target,float feedback,float phase_feedback);
 #endif
 
 #if defined AKM_CAR
@@ -269,6 +282,11 @@ static void PI_Controller_Reset(PI_CONTROLLER *p)
 	p->LastBias = 0;
 	p->LastestBias = 0;
 	p->Output = 0;
+
+	#if defined AKM_CAR
+		if( p == &PI_MotorA ) AKM_PI_Notch_Reset(&pi_notch_motor_a);
+		else if( p == &PI_MotorB ) AKM_PI_Notch_Reset(&pi_notch_motor_b);
+	#endif
 }
 
 
@@ -283,11 +301,11 @@ Author: WHEELTEC
 返回  值：控制量结果输出
 作    者：WHEELTEC
 **************************************************************************/
-static int Incremental_MOTOR(PI_CONTROLLER* p,float current,float target)
+static int Incremental_MOTOR_ByError(PI_CONTROLLER* p,float error)
 {
 	float Output;
 	//计算偏差
-	p->Bias = target - current;
+	p->Bias = error;
 	
 	//计算输出
 	Output = p->kp * ( p->Bias - p->LastBias ) + p->ki * p->Bias + p->kd *(p->Bias - 2 * p->LastBias + p->LastestBias);
@@ -310,6 +328,11 @@ static int Incremental_MOTOR(PI_CONTROLLER* p,float current,float target)
 	return (int)(p->Output);
 }
 
+static int Incremental_MOTOR(PI_CONTROLLER* p,float current,float target)
+{
+	return Incremental_MOTOR_ByError(p,target - current);
+}
+
 static void UartTarget_ClearMotionState(void)
 {
 	robot_control.Vx = 0;
@@ -328,6 +351,7 @@ static void UartTarget_ClearMotionState(void)
 	robot.MOTOR_D.Output = 0;
 
 	#if defined AKM_CAR
+		AKM_PI_Notch_ResetAll();
 		AKM_AFC_ResetAll();
 	#endif
 }
@@ -347,6 +371,63 @@ static void AKM_AFC_ResetAll(void)
 {
 	AKM_AFC_Reset(&afc_motor_a);
 	AKM_AFC_Reset(&afc_motor_b);
+}
+
+static void AKM_PI_Notch_Reset(AKM_PI_NOTCH_STATE_t *state)
+{
+	if( state == NULL ) return;
+
+	state->phase = 0.0f;
+	state->sin_state = 0.0f;
+	state->cos_state = 0.0f;
+	state->output = 0.0f;
+}
+
+static void AKM_PI_Notch_ResetAll(void)
+{
+	AKM_PI_Notch_Reset(&pi_notch_motor_a);
+	AKM_PI_Notch_Reset(&pi_notch_motor_b);
+}
+
+static float AKM_PI_Notch_Filter(AKM_PI_NOTCH_STATE_t *state,float error,float target,float feedback,float phase_feedback)
+{
+	float wheel_circ;
+	float phase_step;
+	float sin_ref;
+	float cos_ref;
+
+	if( state == NULL ) return error;
+
+	// PI误差陷波按1倍轮频跟踪,避免把低频速度调节一并削弱.
+	wheel_circ = robot.HardwareParam.Wheel_Circ;
+	if( wheel_circ < 0.001f )
+	{
+		AKM_PI_Notch_Reset(state);
+		return error;
+	}
+
+	// 仅在AFC可稳定工作的轮速区间对PI误差做同步陷波,低速时保持原始误差.
+	if( fabsf(target) < AKM_AFC_MIN_TARGET_SPEED || fabsf(feedback) < AKM_AFC_MIN_FEEDBACK_SPEED ||
+		(fabsf(target) < AKM_AFC_RESET_SPEED && fabsf(feedback) < AKM_AFC_RESET_SPEED) ||
+		(target * feedback) < -0.0025f )
+	{
+		AKM_PI_Notch_Reset(state);
+		return error;
+	}
+
+	phase_step = AKM_AFC_PHASE_WRAP * phase_feedback * AKM_AFC_DT / wheel_circ;
+	state->phase += phase_step;
+	while( state->phase >= AKM_AFC_PHASE_WRAP ) state->phase -= AKM_AFC_PHASE_WRAP;
+	while( state->phase <= -AKM_AFC_PHASE_WRAP ) state->phase += AKM_AFC_PHASE_WRAP;
+
+	sin_ref = sinf(state->phase);
+	cos_ref = cosf(state->phase);
+
+	state->sin_state += AKM_PI_NOTCH_LPF_GAIN * ((error * sin_ref) - state->sin_state);
+	state->cos_state += AKM_PI_NOTCH_LPF_GAIN * ((error * cos_ref) - state->cos_state);
+	state->output = 2.0f * (state->sin_state * sin_ref + state->cos_state * cos_ref);
+
+	return error - state->output;
 }
 
 static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback,float phase_feedback)
@@ -1155,8 +1236,12 @@ Author: WHEELTEC
 static void ResponseControl(void)
 {
 	#if defined AKM_CAR
+	float motor_a_error;
+	float motor_b_error;
+
 	if( robot_control.uart_target_mode == UART_TARGET_MODE_PWM && robot_control.uart_target_valid )
 	{
+		AKM_PI_Notch_ResetAll();
 		AKM_AFC_ResetAll();
 		Apply_AKM_UartPwmOutput(robot.MOTOR_A.Output,robot.MOTOR_B.Output);
 		return;
@@ -1166,10 +1251,18 @@ static void ResponseControl(void)
 //与小车控制相关
 	//根据滑轨的行程、不同的车型 来确定PI参数
 	if(fabsf(robot.MOTOR_A.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorA); robot.MOTOR_A.Output = 0;}
-	else robot.MOTOR_A.Output = Incremental_MOTOR( &PI_MotorA , robot.MOTOR_A.Encoder , robot.MOTOR_A.Target );
+	else
+	{
+		motor_a_error = AKM_PI_Notch_Filter(&pi_notch_motor_a,robot.MOTOR_A.Target - robot.MOTOR_A.Encoder,robot.MOTOR_A.Target,robot.MOTOR_A.Encoder,robot.MOTOR_A.Encoder);
+		robot.MOTOR_A.Output = Incremental_MOTOR_ByError(&PI_MotorA,motor_a_error);
+	}
 
 	if(fabsf(robot.MOTOR_B.Target) < 0.01f) {PI_Controller_Reset(&PI_MotorB); robot.MOTOR_B.Output = 0;}
-	else robot.MOTOR_B.Output = Incremental_MOTOR( &PI_MotorB , robot.MOTOR_B.Encoder , robot.MOTOR_B.Target );
+	else
+	{
+		motor_b_error = AKM_PI_Notch_Filter(&pi_notch_motor_b,robot.MOTOR_B.Target - robot.MOTOR_B.Encoder,robot.MOTOR_B.Target,robot.MOTOR_B.Encoder,robot.MOTOR_B.Encoder);
+		robot.MOTOR_B.Output = Incremental_MOTOR_ByError(&PI_MotorB,motor_b_error);
+	}
 
 	if( fabsf(robot.MOTOR_A.Target) < 0.01f ) AKM_AFC_Reset(&afc_motor_a);
 	else robot.MOTOR_A.Output = AKM_AFC_Compensate(&afc_motor_a,robot.MOTOR_A.Output,robot.MOTOR_A.Target,robot.MOTOR_A.Encoder,robot.MOTOR_A.Encoder);

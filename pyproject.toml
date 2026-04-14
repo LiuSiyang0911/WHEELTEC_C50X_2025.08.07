@@ -1,0 +1,14 @@
+[project]
+name = "pi-notch-analysis"
+version = "0.1.0"
+description = "Offline PI notch analysis tools for AKM debug CSV data"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "numpy",
+    "uvicorn",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider -p no:tmpdir"
