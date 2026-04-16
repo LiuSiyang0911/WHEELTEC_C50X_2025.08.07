@@ -25,6 +25,15 @@ DebugConfig/
 *.log
 *.log.lock
 
+# Python test/cache artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-tmp/
+pytest-cache-files-*/
+pytest-tmp-files/
+test-temp-files/
+
 # IDE temporary files
 *.bak
 *.tmp

@@ -40,7 +40,7 @@ AlphaBeta_Filter_t AB_MotorB = {
 #define AKM_AFC_LMS_MU_B           10.0f
 #define AKM_AFC_LEAK               0.9995f
 #define AKM_AFC_MAX_PWM            2000.0f
-#define AKM_AFC_PWM_REF_ALPHA      0.02f
+#define AKM_AFC_PWM_TEST_TARGET_SPEED 0.2538f
 #define AKM_AFC_PHASE_WRAP         (2.0f * PI)
 
 typedef struct{
@@ -48,7 +48,6 @@ typedef struct{
 	float sin_gain;
 	float cos_gain;
 	float output;
-	float speed_ref;
 	float lms_mu;
 }AKM_AFC_STATE_t;
 
@@ -59,7 +58,6 @@ static AKM_AFC_STATE_t afc_motor_b = {.lms_mu = AKM_AFC_LMS_MU_B};
 
 static void AKM_AFC_Reset(AKM_AFC_STATE_t *state);
 static void AKM_AFC_ResetAll(void);
-static float AKM_AFC_UpdatePwmSpeedRef(AKM_AFC_STATE_t *state,float feedback);
 static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback,float phase_feedback);
 static uint8_t AKM_IsUartPwmForwardAfcTest(void);
 static void Apply_AKM_UartPwmForwardAfc(void);
@@ -346,31 +344,12 @@ static void AKM_AFC_Reset(AKM_AFC_STATE_t *state)
 	state->sin_gain = 0.0f;
 	state->cos_gain = 0.0f;
 	state->output = 0.0f;
-	state->speed_ref = 0.0f;
 }
 
 static void AKM_AFC_ResetAll(void)
 {
 	AKM_AFC_Reset(&afc_motor_a);
 	AKM_AFC_Reset(&afc_motor_b);
-}
-
-static float AKM_AFC_UpdatePwmSpeedRef(AKM_AFC_STATE_t *state,float feedback)
-{
-	if( state == NULL ) return 0.0f;
-
-	if( fabsf(feedback) < AKM_AFC_RESET_SPEED ||
-		fabsf(state->speed_ref) < AKM_AFC_RESET_SPEED ||
-		(state->speed_ref * feedback) < 0.0f )
-	{
-		state->speed_ref = feedback;
-	}
-	else
-	{
-		state->speed_ref += (feedback - state->speed_ref) * AKM_AFC_PWM_REF_ALPHA;
-	}
-
-	return state->speed_ref;
 }
 
 static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback,float phase_feedback)
@@ -433,8 +412,6 @@ static void Apply_AKM_UartPwmForwardAfc(void)
 {
 	int base_pwm_a = robot.MOTOR_A.Output;
 	int base_pwm_b = robot.MOTOR_B.Output;
-	float target_speed_a;
-	float target_speed_b;
 
 	if( AKM_IsUartPwmForwardAfcTest() == 0 )
 	{
@@ -443,11 +420,8 @@ static void Apply_AKM_UartPwmForwardAfc(void)
 		return;
 	}
 
-	target_speed_a = AKM_AFC_UpdatePwmSpeedRef(&afc_motor_a,robot.MOTOR_A.Encoder);
-	target_speed_b = AKM_AFC_UpdatePwmSpeedRef(&afc_motor_b,robot.MOTOR_B.Encoder);
-
-	robot.MOTOR_A.Output = AKM_AFC_Compensate(&afc_motor_a,base_pwm_a,target_speed_a,robot.MOTOR_A.Encoder,robot.MOTOR_A.Encoder);
-	robot.MOTOR_B.Output = AKM_AFC_Compensate(&afc_motor_b,base_pwm_b,target_speed_b,robot.MOTOR_B.Encoder,robot.MOTOR_B.Encoder);
+	robot.MOTOR_A.Output = AKM_AFC_Compensate(&afc_motor_a,base_pwm_a,AKM_AFC_PWM_TEST_TARGET_SPEED,robot.MOTOR_A.Encoder,robot.MOTOR_A.Encoder);
+	robot.MOTOR_B.Output = AKM_AFC_Compensate(&afc_motor_b,base_pwm_b,AKM_AFC_PWM_TEST_TARGET_SPEED,robot.MOTOR_B.Encoder,robot.MOTOR_B.Encoder);
 	Apply_AKM_UartPwmOutput(robot.MOTOR_A.Output,robot.MOTOR_B.Output);
 }
 #endif
