@@ -67,6 +67,21 @@ Thumbs.db
 # Claude AI settings
 .claude/
 
+# Python generated files
+__pycache__/
+*.py[cod]
+
+# Python virtual environments and package caches
+.venv/
+.uv-cache/
+
+# pytest temporary files
+.pytest_cache/
+.pytest-tmp/
+pytest-cache-files-*/
+pytest-tmp-files/
+test-temp-files/
+
 # Simulink artifacts
 simulink/
 # PPT generation artifacts
