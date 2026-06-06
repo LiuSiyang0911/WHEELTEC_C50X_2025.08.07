@@ -376,7 +376,6 @@ bool turn_on_robot::Get_Sensor_Data_Extended()
   while(serial_rx_cache.size() > 512)
   {
     serial_rx_cache.pop_front();
-    akm_packet_drop_count++;
   }
 
   while(!serial_rx_cache.empty())
@@ -503,6 +502,7 @@ turn_on_robot::turn_on_robot()
     serial::Timeout _time = serial::Timeout::simpleTimeout(2000);
     Stm32_Serial.setTimeout(_time);
     Stm32_Serial.open();
+    Stm32_Serial.flushInput();
   }
   catch(serial::IOException& e)
   {
