@@ -1,0 +1,15 @@
+std_msgs/Header header
+uint16 seq_id
+uint32 control_tick_us
+uint16 dt_us
+int32 left_encoder_delta
+int32 right_encoder_delta
+float32 left_wheel_speed
+float32 right_wheel_speed
+int16 steering_feedback_raw
+int16 steering_target_raw
+float32 steering_angle
+int16 steering_pwm
+uint16 status_flags
+uint8 control_mode
+uint8 robot_type

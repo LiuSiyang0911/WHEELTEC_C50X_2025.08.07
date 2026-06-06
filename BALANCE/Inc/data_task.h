@@ -5,13 +5,21 @@
 
 #define DATA_TASK_PRIO		4             //Task priority //任务优先级
 #define DATA_STK_SIZE 		512           //Task stack size //任务堆栈大小
-#define DATA_TASK_RATE      RATE_20_HZ   //任务频率
+#define DATA_TASK_RATE      RATE_100_HZ   //任务频率
 
 
 //基础24字节帧头、帧尾、数据长度
 #define FRAME_HEADER      0X7B //Frame_header //帧头
 #define FRAME_TAIL        0X7D //Frame_tail   //帧尾
 #define SEND_DATA_SIZE    24
+
+//AKM扩展遥测帧, 内嵌原24字节帧并追加底层观测量
+#define AKM_EXT_FRAME_HEADER      0X7E
+#define AKM_EXT_FRAME_TAIL        0X7F
+#define AKM_EXT_FRAME_TYPE_MOTION 0X01
+#define AKM_EXT_PROTOCOL_VERSION  0X01
+#define AKM_EXT_PAYLOAD_SIZE      66
+#define AKM_EXT_FRAME_SIZE        (4 + AKM_EXT_PAYLOAD_SIZE + 2)
 
 //自动回充帧头、帧尾、数据长度
 #define AutoCharge_HEADER      0X7C //Frame_header //帧头
@@ -50,6 +58,11 @@ typedef struct _SEND_DATA_
 	unsigned char buffer[SEND_DATA_SIZE];//实际用于发送数据的缓冲区
 }SEND_DATA;
 
+typedef struct _SEND_AKM_EXT_DATA_
+{
+	unsigned char buffer[AKM_EXT_FRAME_SIZE];
+}SEND_AKM_EXT_DATA;
+
 //发送数据结构体定义
 typedef struct _SEND_AutoCharge_DATA_  
 {
@@ -76,7 +89,12 @@ static float* Kinematics_akm_diff(float motorA,float motorB);
 static float* Kinematics_omni(float motorA,float motorB,float motorC);
 static float* Kinematics_mec_4wd(float motorA,float motorB,float motorC,float motorD);
 static void data_transition(void);
+#if defined AKM_CAR
+static void AkmExt_DataTransition(void);
+#endif
+#if 0
 static void Usart1_SendTask(void);
+#endif
 static void Usart3_SendTask(void);
 static void CAN1_SendTask(void);
 

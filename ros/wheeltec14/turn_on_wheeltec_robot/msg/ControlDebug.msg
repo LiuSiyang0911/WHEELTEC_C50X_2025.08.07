@@ -1,0 +1,14 @@
+std_msgs/Header header
+uint16 seq_id
+uint32 control_tick_us
+float32 target_vx
+float32 target_vy
+float32 target_vz
+float32 legacy_vx
+float32 legacy_vy
+float32 legacy_vz
+int16 motor_left_pwm
+int16 motor_right_pwm
+int16 steering_pwm
+uint16 status_flags
+uint8 control_mode

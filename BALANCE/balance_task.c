@@ -41,6 +41,14 @@ AlphaBeta_Filter_t AB_MotorB = {
 #define AKM_AFC_LEAK               0.9995f
 #define AKM_AFC_MAX_PWM            2000.0f
 #define AKM_AFC_PHASE_WRAP         (2.0f * PI)
+#define AKM_AFC_PWM_MIN_BASE       200
+#define AKM_AFC_PWM_REF_MIN_SPEED  0.03f
+#define AKM_AFC_PWM_REF_ALPHA_A    0.04f
+#define AKM_AFC_PWM_REF_ALPHA_B    0.05f
+#define AKM_AFC_PWM_WARMUP_TICKS_A 10u
+#define AKM_AFC_PWM_WARMUP_TICKS_B 5u
+#define AKM_AFC_PWM_LMS_MU_A       12.0f
+#define AKM_AFC_PWM_LMS_MU_B       16.0f
 
 typedef struct{
 	float phase;
@@ -48,16 +56,36 @@ typedef struct{
 	float cos_gain;
 	float output;
 	float lms_mu;
+	float pwm_lms_mu;
+	float pwm_ref_alpha;
+	float pwm_ref_speed;
+	uint8_t pwm_ref_valid;
+	uint16_t pwm_ready_count;
+	uint16_t pwm_warmup_ticks;
 }AKM_AFC_STATE_t;
 
 float akm_encoder_m_raw[2] = {0.0f, 0.0f};
 float akm_encoder_feedback_raw[2] = {0.0f, 0.0f};
-static AKM_AFC_STATE_t afc_motor_a = {.lms_mu = AKM_AFC_LMS_MU_A};
-static AKM_AFC_STATE_t afc_motor_b = {.lms_mu = AKM_AFC_LMS_MU_B};
+int32_t akm_encoder_delta_raw[2] = {0, 0};
+int16_t akm_last_motor_pwm[2] = {0, 0};
+int16_t akm_last_servo_pwm = 0;
+static AKM_AFC_STATE_t afc_motor_a = {
+	.lms_mu = AKM_AFC_LMS_MU_A,
+	.pwm_lms_mu = AKM_AFC_PWM_LMS_MU_A,
+	.pwm_ref_alpha = AKM_AFC_PWM_REF_ALPHA_A,
+	.pwm_warmup_ticks = AKM_AFC_PWM_WARMUP_TICKS_A
+};
+static AKM_AFC_STATE_t afc_motor_b = {
+	.lms_mu = AKM_AFC_LMS_MU_B,
+	.pwm_lms_mu = AKM_AFC_PWM_LMS_MU_B,
+	.pwm_ref_alpha = AKM_AFC_PWM_REF_ALPHA_B,
+	.pwm_warmup_ticks = AKM_AFC_PWM_WARMUP_TICKS_B
+};
 
 static void AKM_AFC_Reset(AKM_AFC_STATE_t *state);
 static void AKM_AFC_ResetAll(void);
 static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,float feedback,float phase_feedback);
+static int AKM_AFC_CompensatePwmMode(AKM_AFC_STATE_t *state,int base_pwm,float feedback,float phase_feedback);
 #endif
 
 #if defined AKM_CAR
@@ -332,6 +360,24 @@ static void UartTarget_ClearMotionState(void)
 	#endif
 }
 
+static void UartTarget_ClearMotionStateKeepAfc(void)
+{
+	robot_control.Vx = 0;
+	robot_control.Vy = 0;
+	robot_control.Vz = 0;
+	robot_control.smooth_Vx = 0;
+	robot_control.smooth_Vy = 0;
+	robot_control.smooth_Vz = 0;
+	robot.MOTOR_A.Target = 0;
+	robot.MOTOR_B.Target = 0;
+	robot.MOTOR_C.Target = 0;
+	robot.MOTOR_D.Target = 0;
+	robot.MOTOR_A.Output = 0;
+	robot.MOTOR_B.Output = 0;
+	robot.MOTOR_C.Output = 0;
+	robot.MOTOR_D.Output = 0;
+}
+
 #if defined AKM_CAR
 static void AKM_AFC_Reset(AKM_AFC_STATE_t *state)
 {
@@ -341,6 +387,9 @@ static void AKM_AFC_Reset(AKM_AFC_STATE_t *state)
 	state->sin_gain = 0.0f;
 	state->cos_gain = 0.0f;
 	state->output = 0.0f;
+	state->pwm_ref_speed = 0.0f;
+	state->pwm_ref_valid = 0u;
+	state->pwm_ready_count = 0u;
 }
 
 static void AKM_AFC_ResetAll(void)
@@ -387,6 +436,71 @@ static int AKM_AFC_Compensate(AKM_AFC_STATE_t *state,int base_pwm,float target,f
 
 	state->sin_gain = state->sin_gain * AKM_AFC_LEAK + state->lms_mu * error * sin_ref;
 	state->cos_gain = state->cos_gain * AKM_AFC_LEAK + state->lms_mu * error * cos_ref;
+	state->output = state->sin_gain * sin_ref + state->cos_gain * cos_ref;
+	state->output = target_limit_float(state->output,-AKM_AFC_MAX_PWM,AKM_AFC_MAX_PWM);
+
+	compensated = (float)base_pwm + state->output;
+	compensated = target_limit_float(compensated,-FULL_DUTYCYCLE,FULL_DUTYCYCLE);
+
+	return (int)compensated;
+}
+
+static int AKM_AFC_CompensatePwmMode(AKM_AFC_STATE_t *state,int base_pwm,float feedback,float phase_feedback)
+{
+	float wheel_circ;
+	float sin_ref;
+	float cos_ref;
+	float error;
+	float phase_step;
+	float compensated;
+
+	if( state == NULL ) return base_pwm;
+
+	if( abs(base_pwm) < AKM_AFC_PWM_MIN_BASE )
+	{
+		AKM_AFC_Reset(state);
+		return base_pwm;
+	}
+
+	wheel_circ = robot.HardwareParam.Wheel_Circ / 2.0f;
+	if( wheel_circ < 0.001f )
+	{
+		AKM_AFC_Reset(state);
+		return base_pwm;
+	}
+
+	if( fabsf(feedback) >= AKM_AFC_PWM_REF_MIN_SPEED )
+	{
+		if( state->pwm_ref_valid == 0u )
+		{
+			state->pwm_ref_speed = feedback;
+			state->pwm_ref_valid = 1u;
+			state->pwm_ready_count = 1u;
+		}
+		else
+		{
+			state->pwm_ref_speed += state->pwm_ref_alpha * (feedback - state->pwm_ref_speed);
+			if( state->pwm_ready_count < state->pwm_warmup_ticks ) state->pwm_ready_count++;
+		}
+	}
+
+	if( state->pwm_ref_valid == 0u || state->pwm_ready_count < state->pwm_warmup_ticks )
+	{
+		state->output = 0.0f;
+		return base_pwm;
+	}
+
+	phase_step = AKM_AFC_PHASE_WRAP * phase_feedback * AKM_AFC_DT / wheel_circ;
+	state->phase += phase_step;
+	while( state->phase >= AKM_AFC_PHASE_WRAP ) state->phase -= AKM_AFC_PHASE_WRAP;
+	while( state->phase <= -AKM_AFC_PHASE_WRAP ) state->phase += AKM_AFC_PHASE_WRAP;
+
+	sin_ref = sinf(state->phase);
+	cos_ref = cosf(state->phase);
+	error = state->pwm_ref_speed - feedback;
+
+	state->sin_gain = state->sin_gain * AKM_AFC_LEAK + state->pwm_lms_mu * error * sin_ref;
+	state->cos_gain = state->cos_gain * AKM_AFC_LEAK + state->pwm_lms_mu * error * cos_ref;
 	state->output = state->sin_gain * sin_ref + state->cos_gain * cos_ref;
 	state->output = target_limit_float(state->output,-AKM_AFC_MAX_PWM,AKM_AFC_MAX_PWM);
 
@@ -1157,7 +1271,11 @@ static void ResponseControl(void)
 	#if defined AKM_CAR
 	if( robot_control.uart_target_mode == UART_TARGET_MODE_PWM && robot_control.uart_target_valid )
 	{
-		AKM_AFC_ResetAll();
+		// PWM测试链路下暂时屏蔽电机PID，仅保留“基底PWM + AFC补偿”。
+		PI_Controller_Reset(&PI_MotorA);
+		PI_Controller_Reset(&PI_MotorB);
+		robot.MOTOR_A.Output = AKM_AFC_CompensatePwmMode(&afc_motor_a,(int)robot.MOTOR_A.Target,robot.MOTOR_A.Encoder,robot.MOTOR_A.Encoder);
+		robot.MOTOR_B.Output = AKM_AFC_CompensatePwmMode(&afc_motor_b,(int)robot.MOTOR_B.Target,robot.MOTOR_B.Encoder,robot.MOTOR_B.Encoder);
 		Apply_AKM_UartPwmOutput(robot.MOTOR_A.Output,robot.MOTOR_B.Output);
 		return;
 	}
@@ -1303,6 +1421,12 @@ static void Set_Pwm(int m_a,int m_b,int m_c,int m_d,int servo)
 {
 	#if defined AKM_CAR || defined DIFF_CAR
 	
+		#if defined AKM_CAR
+		akm_last_motor_pwm[0] = (int16_t)target_limit_int(m_a,-32768,32767);
+		akm_last_motor_pwm[1] = (int16_t)target_limit_int(m_b,-32768,32767);
+		akm_last_servo_pwm = (int16_t)target_limit_int(servo,-32768,32767);
+		#endif
+
 		//电机控制
 		if( m_a < 0 ) AIN1=1,AIN2=0;
 		else          AIN1=0,AIN2=1;
@@ -1502,7 +1626,8 @@ static void Apply_AKM_UartTargetFromApp(void)
 	int output_b = 0;
 	uint8_t turn_flag = appkey.TurnFlag;
 
-	UartTarget_ClearMotionState();
+	// 持续PWM控制时只清本周期目标/输出，避免把AFC内部状态每周期复位。
+	UartTarget_ClearMotionStateKeepAfc();
 
 	if( robot_control.uart_target_mode == UART_TARGET_MODE_SPEED )
 	{
@@ -2146,6 +2271,9 @@ static void Get_Robot_FeedBack(void)
 		float m_speed_b;
 		uint32_t now_us;
 	
+		akm_encoder_delta_raw[0] = Encoder_A_pr;
+		akm_encoder_delta_raw[1] = -Encoder_B_pr;
+
 		//未完成自检时采集编码器数据进行判断
 		if( robot_check.check_end == 0 )
 		{

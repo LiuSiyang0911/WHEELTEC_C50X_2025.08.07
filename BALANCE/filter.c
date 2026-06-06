@@ -114,5 +114,5 @@ float AlphaBeta_Filter_Update(AlphaBeta_Filter_t *f, float input)
 **************************************************************************/
 void Yijielvbo(float angle_m, float gyro_m)
 {
-   angle = K1 * angle_m+ (1-K1) * (angle + gyro_m * 0.005);
+   angle = K1 * angle_m+ (1.0f-K1) * (angle + gyro_m * 0.005f);
 }

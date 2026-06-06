@@ -98,6 +98,9 @@ extern AKM_SERVO_UNLOCK_t ServoState;
 #if defined AKM_CAR
 extern float akm_encoder_m_raw[2];
 extern float akm_encoder_feedback_raw[2];
+extern int32_t akm_encoder_delta_raw[2];
+extern int16_t akm_last_motor_pwm[2];
+extern int16_t akm_last_servo_pwm;
 #endif
 
 //机器人控制方式设置与读取
@@ -133,6 +136,9 @@ float Debug_GetAkmAfcOutputB(void);
 float rad_to_angle(const float rad);  //角度与弧度互转
 float angle_to_rad(const float angle);//角度与弧度互转
 float Akm_Vz_to_Angle(float Vx,float Vz);//将阿克曼的目标速度转换为左前轮转角
+#if defined AKM_CAR
+float SteeringStructure_ForwardKinematic(short ori_pos);
+#endif
 short get_ServoPWM(short TmpPos);//根据滑轨的数据估测舵机的PWM数值
 float target_limit_float(float insert,float low,float high);
 void FlashParam_Read(void);

@@ -1,0 +1,13 @@
+std_msgs/Header header
+uint16 seq_id
+uint32 control_tick_us
+float32 battery_voltage
+bool flag_stop
+bool command_timeout
+bool low_voltage
+bool self_check_error
+bool steering_angle_valid
+uint16 status_flags
+uint32 packet_drop_count
+uint32 checksum_error_count
+uint32 legacy_error_count

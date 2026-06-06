@@ -2,6 +2,9 @@
 
 //用于发送数据的结构体
 SEND_DATA Send_Data;
+#if defined AKM_CAR
+SEND_AKM_EXT_DATA Send_AkmExt_Data;
+#endif
 SEND_AutoCharge_DATA Send_AutoCharge_Data;
 
 /**************************************************************************
@@ -20,8 +23,8 @@ void data_task(void *pvParameters)
 	
    while(1)
     {	
-			//The task is run at 20hz
-			//此任务以20Hz的频率运行
+			//The task is run at DATA_TASK_RATE.
+			//此任务以DATA_TASK_RATE定义的频率运行
 			vTaskDelayUntil(&lastWakeTime, F2T(DATA_TASK_RATE));
 			//Assign the data to be sent
 			//对要进行发送的数据进行赋值
@@ -50,6 +53,39 @@ uint8_t Check_BCC(const uint8_t *data, uint16_t length) {
     }
     return bcc;
 }
+
+#if defined AKM_CAR
+static short Limit_Int16_FromFloat(float value)
+{
+	if(value > 32767.0f) return 32767;
+	if(value < -32768.0f) return -32768;
+	return (short)value;
+}
+
+static void Pack_U16_BE(uint8_t *buf,uint16_t value)
+{
+	buf[0] = value >> 8;
+	buf[1] = value;
+}
+
+static void Pack_I16_BE(uint8_t *buf,int16_t value)
+{
+	Pack_U16_BE(buf,(uint16_t)value);
+}
+
+static void Pack_U32_BE(uint8_t *buf,uint32_t value)
+{
+	buf[0] = value >> 24;
+	buf[1] = value >> 16;
+	buf[2] = value >> 8;
+	buf[3] = value;
+}
+
+static void Pack_I32_BE(uint8_t *buf,int32_t value)
+{
+	Pack_U32_BE(buf,(uint32_t)value);
+}
+#endif
 
 /**************************************************************************
 Function: The data sent by the serial port is assigned
@@ -142,6 +178,10 @@ static void data_transition(void)
 	Send_Data.buffer[22]=Check_BCC(Send_Data.buffer,22); 
 	
 	Send_Data.buffer[23]=Send_Data.Sensor_Str.Frame_Tail; //Frame_tail //帧尾
+
+	#if defined AKM_CAR
+	AkmExt_DataTransition();
+	#endif
 	
 	///////////////////////自动回充相关变量赋值/////////////////////
 	Send_AutoCharge_Data.AutoCharge_Str.Frame_Header = AutoCharge_HEADER;   //帧头赋值0x7C
@@ -162,6 +202,87 @@ static void data_transition(void)
 	///////////////////////自动回充相关变量赋值/////////////////////
 }
 
+#if defined AKM_CAR
+/**************************************************************************
+Function: Assemble AKM motion extension telemetry frame.
+Input   : none
+Output  : none
+函数功能：组装AKM扩展运动遥测帧, 内嵌原24字节帧并追加底层观测量
+入口参数：无
+返回  值：无
+**************************************************************************/
+static void AkmExt_DataTransition(void)
+{
+	static uint16_t seq_id = 0;
+	static uint32_t last_tick_us = 0;
+	static uint8_t has_last_tick = 0;
+	uint8_t *payload;
+	uint8_t *buf;
+	uint8_t i;
+	uint16_t status_flags;
+	uint32_t now_us;
+	uint16_t dt_us;
+	float steering_angle_rad;
+	short steering_angle_x10000;
+
+	buf = Send_AkmExt_Data.buffer;
+	payload = &buf[4];
+	now_us = get_us_tick();
+	dt_us = has_last_tick ? (uint16_t)(now_us - last_tick_us) : 0;
+	last_tick_us = now_us;
+	has_last_tick = 1;
+	status_flags = 0x0040u; //legacy 24B data valid //原24字节数据有效
+	steering_angle_rad = 0.0f;
+	steering_angle_x10000 = 0;
+
+	if(robot_control.FlagStop) status_flags |= 0x0001u;
+	if(robot_control.command_lostcount > BALANCE_TASK_RATE) status_flags |= 0x0002u;
+	if(robot.voltage < 20.0f && charger.AllowRecharge == 0) status_flags |= 0x0004u;
+	if(robot_check.errorflag) status_flags |= 0x0010u;
+
+	if(robot.type >= 2 && robot.type <= 5)
+	{
+		steering_angle_rad = angle_to_rad(SteeringStructure_ForwardKinematic((short)robot.SERVO.Encoder));
+		steering_angle_x10000 = Limit_Int16_FromFloat(steering_angle_rad * 10000.0f);
+		status_flags |= 0x0020u; //steering angle calibrated from slide raw //滑轨反馈转角有效
+	}
+
+	buf[0] = AKM_EXT_FRAME_HEADER;
+	buf[1] = AKM_EXT_FRAME_TYPE_MOTION;
+	buf[2] = AKM_EXT_PROTOCOL_VERSION;
+	buf[3] = AKM_EXT_PAYLOAD_SIZE;
+
+	Pack_U16_BE(&payload[0],seq_id++);
+	Pack_U32_BE(&payload[2],now_us);
+	Pack_U16_BE(&payload[6],dt_us);
+
+	for(i=0;i<SEND_DATA_SIZE;i++)
+	{
+		payload[8+i] = Send_Data.buffer[i];
+	}
+
+	Pack_I32_BE(&payload[32],akm_encoder_delta_raw[0]);
+	Pack_I32_BE(&payload[36],akm_encoder_delta_raw[1]);
+	Pack_I16_BE(&payload[40],Limit_Int16_FromFloat(robot.MOTOR_A.Encoder * 1000.0f));
+	Pack_I16_BE(&payload[42],Limit_Int16_FromFloat(robot.MOTOR_B.Encoder * 1000.0f));
+	Pack_I16_BE(&payload[44],Limit_Int16_FromFloat(robot.SERVO.Encoder));
+	Pack_I16_BE(&payload[46],Limit_Int16_FromFloat(robot.SERVO.Target));
+	Pack_I16_BE(&payload[48],steering_angle_x10000);
+	Pack_I16_BE(&payload[50],akm_last_servo_pwm);
+	Pack_I16_BE(&payload[52],akm_last_motor_pwm[0]);
+	Pack_I16_BE(&payload[54],akm_last_motor_pwm[1]);
+	Pack_I16_BE(&payload[56],Limit_Int16_FromFloat(robot_control.Vx * 1000.0f));
+	Pack_I16_BE(&payload[58],Limit_Int16_FromFloat(robot_control.Vy * 1000.0f));
+	Pack_I16_BE(&payload[60],Limit_Int16_FromFloat(robot_control.Vz * 1000.0f));
+	Pack_U16_BE(&payload[62],status_flags);
+	payload[64] = robot_control.ControlMode;
+	payload[65] = robot.type;
+
+	buf[AKM_EXT_FRAME_SIZE-2] = Check_BCC(buf,AKM_EXT_FRAME_SIZE-2);
+	buf[AKM_EXT_FRAME_SIZE-1] = AKM_EXT_FRAME_TAIL;
+}
+#endif
+
 /**************************************************************************
 Function: Serial port 1 sends data
 Input   : none
@@ -170,6 +291,7 @@ Output  : none
 入口参数：无
 返回  值：无
 **************************************************************************/
+#if 0
 static void Usart1_SendTask(void)
 {
   unsigned char i = 0;	
@@ -188,6 +310,7 @@ static void Usart1_SendTask(void)
 		}	
 	}
 }
+#endif
 
 /**************************************************************************
 Function: Serial port 3 sends data
@@ -200,10 +323,17 @@ Output  : none
 static void Usart3_SendTask(void)
 {
   unsigned char i = 0;	
+	#if defined AKM_CAR
+	for(i=0; i<AKM_EXT_FRAME_SIZE; i++)
+	{
+		uart3_send(Send_AkmExt_Data.buffer[i]);
+	}
+	#else
 	for(i=0; i<24; i++)
 	{
 		uart3_send(Send_Data.buffer[i]);
 	}	 
+	#endif
 	
 	if(SysVal.HardWare_charger==1)
 	{
@@ -271,8 +401,13 @@ static float* Kinematics_akm_diff(float motorA,float motorB)
 {
 	static float vel[3];
 	//xyz三轴计算速度
+	#if defined AKM_CAR
 	vel[0] = (motorA + motorB)/2.0f;
 	vel[1] = 0;
+	#else
+	vel[0] = (motorA + motorB)/2.0f;
+	vel[1] = 0;
+	#endif
 	vel[2] = (motorB - motorA)/robot.HardwareParam.WheelSpacing;
 	
 	return vel;
